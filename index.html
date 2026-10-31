@@ -5,55 +5,71 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>ブロック自由落下</title>
 <style>
-  html, body { margin: 0; height: 100%; background: #f4efe6; overflow: hidden; touch-action: none;
+  :root { --bg: #f4efe6; --text: #333; --panel: #ddd5c5; --btn: #fff; --btnText: #333; --btnShadow: #a99;
+    --over: rgba(244,239,230,.94); --strong: #333; --strongText: #fff; --track: rgba(0,0,0,.18); --subtle: rgba(0,0,0,.12); }
+  html[data-theme="dark"] { --bg: #15171c; --text: #e8e8ea; --panel: #222630; --btn: #363c4a; --btnText: #e8e8ea;
+    --btnShadow: #0c0d10; --over: rgba(21,23,28,.94); --strong: #e8e8ea; --strongText: #15171c;
+    --track: rgba(255,255,255,.25); --subtle: rgba(255,255,255,.14); }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); overflow: hidden; touch-action: none;
     font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif; user-select: none; -webkit-user-select: none; }
   #app { position: fixed; inset: 0; display: flex; flex-direction: column; max-width: 520px; margin: 0 auto; }
   #stage { position: relative; flex: 1; min-height: 0; }
   canvas { width: 100%; height: 100%; display: block; }
   #hud { position: absolute; top: 8px; left: 12px; right: 12px; display: flex; justify-content: space-between;
-    font-weight: bold; color: #333; pointer-events: none; font-size: 16px; }
+    font-weight: bold; color: var(--text); pointer-events: none; font-size: 14px; }
+  #hScore { white-space: pre-line; line-height: 1.4; }
+  #btns { display: flex; gap: 4px; align-items: flex-start; }
   #warn { position: absolute; left: 0; right: 0; top: 28%; height: 84px; display: none; align-items: center;
     justify-content: center; pointer-events: none; z-index: 5;
     background: repeating-linear-gradient(-45deg, #fc0 0 22px, #222 22px 44px); animation: blink .35s steps(2) infinite; }
   #warn span { background: #222; color: #fc0; font-size: 26px; font-weight: bold; padding: 6px 18px; letter-spacing: 2px; }
   @keyframes blink { 50% { opacity: .35; } }
-  #hand { pointer-events: auto; font-size: 12px; padding: 4px 8px; border: 0; border-radius: 8px; background: rgba(0,0,0,.12); color: #333; }
+  #hand, #theme { pointer-events: auto; font-size: 12px; padding: 4px 8px; border: 0; border-radius: 8px; background: var(--subtle); color: var(--text); }
   #stage.lefty #rot { right: auto; left: 6px; }
   #msg { position: absolute; top: 40%; left: 0; right: 0; text-align: center; font-size: 28px; font-weight: bold;
     color: #d33; pointer-events: none; opacity: 0; transition: opacity .3s; }
-  #controls { display: flex; gap: 8px; padding: 8px; background: #ddd5c5; }
-  #controls button { flex: 1; font-size: 26px; padding: 14px 0; border: 0; border-radius: 10px; background: #fff;
-    box-shadow: 0 3px 0 #a99; touch-action: none; }
-  #controls button:active { transform: translateY(2px); box-shadow: 0 1px 0 #a99; }
-  #over { position: absolute; inset: 0; background: rgba(244,239,230,.94); display: none; flex-direction: column;
+  #controls { display: flex; gap: 8px; padding: 8px; background: var(--panel); }
+  #controls button { flex: 1; font-size: 26px; padding: 14px 0; border: 0; border-radius: 10px; background: var(--btn); color: var(--btnText);
+    box-shadow: 0 3px 0 var(--btnShadow); touch-action: none; }
+  #controls button:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--btnShadow); }
+  #over { position: absolute; inset: 0; background: var(--over); color: var(--text); display: none; flex-direction: column;
     align-items: center; justify-content: center; gap: 12px; text-align: center; padding: 20px; }
   #over h1 { margin: 0; font-size: 30px; }
   #over .big { font-size: 48px; font-weight: bold; }
-  #over button { font-size: 20px; padding: 12px 28px; border: 0; border-radius: 10px; background: #333; color: #fff; }
+  #over button { font-size: 20px; padding: 12px 28px; border: 0; border-radius: 10px; background: var(--strong); color: var(--strongText); }
   #over button#revive { background: #fc0; color: #222; font-weight: bold; box-shadow: 0 3px 0 #a80; }
-  #over button.sub { background: #fff; color: #333; box-shadow: 0 2px 0 #a99; }
+  #over button.sub { background: var(--btn); color: var(--btnText); box-shadow: 0 2px 0 var(--btnShadow); }
   #adslot { min-height: 0; }
+  #adDummy { position: absolute; inset: 0; z-index: 10; display: none; flex-direction: column; align-items: center;
+    justify-content: center; gap: 8px; background: rgba(0,0,0,.82); color: #fff; font-weight: bold; text-align: center; }
+  #adDummy .n { font-size: 56px; }
+  #adDummy small { font-weight: normal; opacity: .7; }
+  #overBg { position: absolute; inset: 0; width: 100%; height: 100%; opacity: .4; pointer-events: none; }
+  #over > *:not(canvas) { position: relative; }
   #rot { position: absolute; right: 6px; top: 14%; bottom: 6%; width: 56px; touch-action: none; }
   #rotTrack { position: absolute; left: 50%; top: 0; bottom: 0; width: 10px; margin-left: -5px;
-    border-radius: 5px; background: rgba(0,0,0,.18); }
+    border-radius: 5px; background: var(--track); }
   #rotThumb { position: absolute; left: 50%; width: 52px; height: 36px; margin: -18px 0 0 -26px; border-radius: 18px;
-    background: #333; color: #fff; font-size: 14px; font-weight: bold; display: flex; align-items: center;
+    background: var(--strong); color: var(--strongText); font-size: 14px; font-weight: bold; display: flex; align-items: center;
     justify-content: center; box-shadow: 0 2px 0 rgba(0,0,0,.3); }
-  #rotMark { position: absolute; left: 0; right: 0; top: 50%; height: 2px; background: rgba(0,0,0,.35); }
+  #rotMark { position: absolute; left: 0; right: 0; top: 50%; height: 2px; background: var(--track); }
 </style>
 </head>
 <body>
 <div id="app">
   <div id="stage">
     <canvas id="c"></canvas>
-    <div id="hud"><span id="hScore">高さ 0m</span><button id="hand">スライダー: 右</button><span id="hLife"></span></div>
+    <div id="hud"><span id="hScore">高さ 0m</span><span id="btns"><button id="hand">スライダー: 右</button><button id="theme">🌙</button></span><span id="hLife"></span></div>
     <div id="msg"></div>
     <div id="warn"><span>⚠ 注意 ⚠ 何かが来る</span></div>
     <div id="rot"><div id="rotTrack"></div><div id="rotMark"></div><div id="rotThumb">0°</div></div>
+    <div id="adDummy"><div>広告(ダミー)</div><div class="n" id="adN">3</div><small>終わると、直前に戻ります</small></div>
     <div id="over">
+      <canvas id="overBg"></canvas>
       <h1 id="oTitle">ブロック自由落下</h1>
-      <div>到達した高さ</div>
+      <div>最高到達点</div>
       <div class="big" id="oScore">0m</div>
+      <div id="oCount"></div>
       <div id="oBest"></div>
       <div id="oComment"></div>
       <!-- 広告の差し込み口(将来: リワード広告「復活」やバナーをここに) -->
@@ -93,7 +109,7 @@ const CFG = {
   wobble: 0.0006         // 着地時にランダムに加える回転の揺れ(理不尽さ)
 };
 
-const { Engine, Bodies, Body, Composite, Events } = Matter;
+const { Engine, Bodies, Body, Composite, Events, Query } = Matter;
 const W = 400;               // ワールドの基準幅
 const GROUND_Y = 0;          // 土台の上面
 const SHAPES = {
@@ -115,6 +131,7 @@ let engine, platform, held, pieces, lives, score, best, state, scale, targetScal
 let settleCount, droppedAt, current, msgTimer;
 let bowlPts, bossPending, nextBoss, spawnDelay;
 let snap, usedRevive;
+let peakScore, peakCount, count, peakShot;
 best = Number(safeGet('bff-best')) || 0;
 
 function safeGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
@@ -154,6 +171,7 @@ function reset() {
   buildBowl();
   bossPending = false; nextBoss = CFG.bossHeight; spawnDelay = 0;
   snap = null; usedRevive = false;
+  peakScore = 0; peakCount = 0; count = 0; peakShot = null;
   pieces = []; lives = CFG.lives; score = 0; held = null; current = null;
   scale = targetScale = baseScale();
   state = 'play';
@@ -194,7 +212,7 @@ function makeBoss(idx) {
     () => Bodies.circle(0, 0, 38, heavy)                // 3: 転がる鉄球
   ];
   const b = kinds[idx !== undefined ? idx : Math.floor(Math.random() * kinds.length)]();
-  b.color = '#b3b';
+  b.color = '#2a2d38';   // 通常ピースの7色と被らない、ほぼ黒
   return b;
 }
 
@@ -281,7 +299,13 @@ function restoreSnapshot() {
 
 // 広告の差し込み口。今はダミー。本番ではリワード広告SDKを呼び、視聴完了で onReward() を呼ぶ
 function showRewardedAd(onReward) {
-  if (confirm('(ダミー)広告を見たことにして、直前に戻りますか？')) onReward();
+  // いまはダミー: 3秒のカウントダウンのあとに戻る。確認ダイアログは出さない
+  const box = $('adDummy'), n = $('adN'); let left = 3;
+  n.textContent = left; box.style.display = 'flex';
+  const t = setInterval(() => {
+    if (--left > 0) { n.textContent = left; return; }
+    clearInterval(t); box.style.display = 'none'; onReward();
+  }, 1000);
 }
 
 function dropHeld() {
@@ -320,26 +344,80 @@ function rotateHeld() {          // キー操作用: 90度ずつ回す
   setRot(d);
 }
 
-function towerHeight() {
+// 塔の高さと乗っている個数。動いている最中のピースは数えない(跳ねた一瞬を最高記録にしないため)
+function towerStats() {
   let top = GROUND_Y;
   for (const p of pieces) {
-    if (p === current && !settled(p)) continue;
+    if (!settled(p)) continue;
     if (p.position.y > GROUND_Y + 150) continue;
     top = Math.min(top, p.bounds.min.y);
   }
-  return Math.max(0, Math.round((GROUND_Y - top) / CFG.block * 0.5 * 10) / 10);  // 1マス=0.5m
+  // 個数: お椀の真上(幅=お椀、高さ=上方向すべて)の範囲と重なるピース。雑でOK
+  const bowlRegion = { min: { x: W / 2 - CFG.bowlHalfWidth, y: -1e6 }, max: { x: W / 2 + CFG.bowlHalfWidth, y: GROUND_Y + 60 } };
+  const n = Query.region(pieces, bowlRegion).length;
+  return { h: Math.max(0, Math.round((GROUND_Y - top) / CFG.block * 0.5 * 10) / 10), n };  // 1マス=0.5m
 }
+// 最高到達時のピースの形(頂点)だけを覚える。数百個の数字なので軽い。画像にするのはシェアを押したとき
+function recordPeak() {
+  peakShot = pieces.filter(p => p.position.y <= GROUND_Y + 150).map(p => ({
+    color: p.color,
+    polys: (p.parts.length > 1 ? p.parts.slice(1) : [p]).map(q => q.vertices.map(v => [v.x, v.y]))
+  }));
+}
+
+// 最高到達時の塔とお椀を、area に収まるように描く(シェア画像と結果画面の背景で共用)
+function renderPeak(g, area, maxK, lw) {
+  // 塔とお椀が収まる範囲を求めて、下をそろえて拡大する
+  let minX = W / 2 - CFG.bowlHalfWidth, maxX = W / 2 + CFG.bowlHalfWidth, minY = GROUND_Y - 150, maxY = GROUND_Y + 60;
+  for (const sh of peakShot) for (const poly of sh.polys) for (const [x, y] of poly) {
+    minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y);
+  }
+  const k = Math.min(area.w / (maxX - minX), area.h / (maxY - minY), maxK);
+  const ox = area.x + (area.w - (maxX - minX) * k) / 2 - minX * k, oy = area.y + area.h - maxY * k;
+  const X = x => ox + x * k, Y = y => oy + y * k;
+  g.lineWidth = lw; g.lineJoin = 'round'; g.strokeStyle = T().line;
+  // お椀
+  g.fillStyle = T().bowl; g.beginPath();
+  bowlPts.forEach((p, i) => i ? g.lineTo(X(p.x), Y(p.y)) : g.moveTo(X(p.x), Y(p.y)));
+  const bl = bowlPts[bowlPts.length - 1], bf = bowlPts[0];
+  g.lineTo(X(bl.x), Y(bl.y + 30)); g.lineTo(X(bf.x), Y(bf.y + 30)); g.closePath(); g.fill(); g.stroke();
+  // ピース
+  for (const sh of peakShot) {
+    g.fillStyle = sh.color;
+    for (const poly of sh.polys) {
+      g.beginPath(); poly.forEach(([x, y], i) => i ? g.lineTo(X(x), Y(y)) : g.moveTo(X(x), Y(y)));
+      g.closePath(); g.fill(); g.stroke();
+    }
+  }
+}
+
+function makeShareImage(cb) {
+  const IW = 720, IH = 960;
+  const c = document.createElement('canvas'); c.width = IW; c.height = IH;
+  const g = c.getContext('2d');
+  const css = getComputedStyle(document.documentElement);
+  const fg = css.getPropertyValue('--text').trim() || '#333';
+  g.fillStyle = css.getPropertyValue('--bg').trim() || '#f4efe6'; g.fillRect(0, 0, IW, IH);
+  renderPeak(g, { x: 40, y: 230, w: IW - 80, h: IH - 230 - 90 }, 2.2, 3);
+  // 文字
+  g.fillStyle = fg; g.textAlign = 'center';
+  g.font = 'bold 48px sans-serif'; g.fillText('ブロック自由落下', IW / 2, 80);
+  g.font = 'bold 92px sans-serif'; g.fillText(peakScore + 'm ・ ' + peakCount + '個', IW / 2, 190);
+  g.font = '28px sans-serif'; g.fillText('#ブロック自由落下', IW / 2, IH - 36);
+  c.toBlob(cb, 'image/png');
+}
+
 function settled(p) { return p.speed < 0.25 && Math.abs(p.angularSpeed) < 0.02; }
 
-const MISS_MSG = ['あっ', 'ツルッ', 'さようなら', '重力は正義', 'そこから？', '滑った！', 'ありがとう物理'];
-const END_MSG = ['摩擦は友達ではなかった', '積んだ気になってた？', '物理が本気を出した', 'もう少しで…ではなかった', '高さ？ そんなものは幻想'];
+const MISS_MSG = ['あっ', 'ツルッ', 'さようなら', 'ひどくない？', 'そこから？', '滑った！', '止まって！', 'あれ？', '落ちた…', 'あーあ', '惜しい！', '残念！', 'うわぁ…', 'あちゃー', 'やっちゃった'];
+const END_MSG = ['ブロックに裏切られた', '積んだ気になってた？', '重力が本気を出した', 'もう少しで…ではなかった', '高さ？ そんなものは幻想', '塔は崩れ、夢も崩れた', '落ちるのはブロックだけじゃない', '塔の上から見える景色は、地面だけ', '塔の頂上で、あなたは孤独になる', '塔の頂上で、あなたは無力になる', '塔の頂上で、あなたは絶望する'];
 
 function flash(text) {
   const m = $('msg'); m.textContent = text; m.style.opacity = 1;
   clearTimeout(msgTimer); msgTimer = setTimeout(() => m.style.opacity = 0, 900);
 }
 function updateHud() {
-  $('hScore').textContent = '高さ ' + score + 'm';
+  $('hScore').textContent = '高さ ' + score + 'm (最高 ' + peakScore + 'm)\n個数 ' + count + '(最多 ' + peakCount + ')';
   $('hLife').textContent = '残り ' + '●'.repeat(Math.max(0, lives)) + '○'.repeat(CFG.lives - Math.max(0, lives));
 }
 
@@ -350,13 +428,23 @@ function miss() {
   if (lives <= 0) gameOver();
 }
 
+// 結果画面の背景に、最高到達時の塔を薄く敷く
+function drawOverBg() {
+  const c = $('overBg'), g = c.getContext('2d');
+  c.width = cw * dpr; c.height = ch * dpr;
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (peakShot) renderPeak(g, { x: 20, y: 20, w: cw - 40, h: ch - 40 }, 2.5, 2);
+}
+
 function gameOver() {
   state = 'over';
-  if (score > best) { best = score; safeSet('bff-best', best); }
-  $('oScore').textContent = score + 'm';
+  if (peakScore > best) { best = peakScore; safeSet('bff-best', best); }
+  $('oScore').textContent = peakScore + 'm';
+  $('oCount').textContent = '乗せた個数(最多) ' + peakCount + '個';
   $('oBest').textContent = 'ベスト ' + best + 'm';
   $('oComment').textContent = END_MSG[Math.floor(Math.random() * END_MSG.length)];
   $('revive').style.display = (!usedRevive && snap) ? '' : 'none';
+  drawOverBg();
   setTimeout(() => { $('over').style.display = 'flex'; }, 700);
 }
 
@@ -378,8 +466,13 @@ function step() {
       }
     }
     if (state === 'play') {
-      const h = towerHeight();
-      if (h !== score) { score = h; updateHud(); }
+      const st = towerStats();
+      if (st.h !== score || st.n !== count) {
+        score = st.h; count = st.n;
+        if (score > peakScore) recordPeak();
+        peakScore = Math.max(peakScore, score); peakCount = Math.max(peakCount, count);
+        updateHud();
+      }
       // 次のピース投入判定
       if (current) {
         if (settled(current)) settleCount++; else settleCount = 0;
@@ -401,7 +494,7 @@ function step() {
 
 function drawBody(b, color, alpha) {
   const parts = b.parts.length > 1 ? b.parts.slice(1) : [b];
-  ctx.fillStyle = color; ctx.strokeStyle = '#222'; ctx.lineWidth = Math.max(1.5, 2 * scale);
+  ctx.fillStyle = color; ctx.strokeStyle = T().line; ctx.lineWidth = Math.max(1.5, 2 * scale);
   ctx.globalAlpha = alpha;
   for (const p of parts) {
     ctx.beginPath();
@@ -415,8 +508,8 @@ function draw() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, cw, ch);
   // 奈落の目印
-  ctx.fillStyle = '#e8dfd0'; ctx.fillRect(0, sy(GROUND_Y + 30), cw, ch);
-  ctx.fillStyle = '#555'; ctx.strokeStyle = '#222'; ctx.lineWidth = Math.max(1.5, 2 * scale);
+  ctx.fillStyle = T().abyss; ctx.fillRect(0, sy(GROUND_Y + 30), cw, ch);
+  ctx.fillStyle = T().bowl; ctx.strokeStyle = T().line; ctx.lineWidth = Math.max(1.5, 2 * scale);
   ctx.beginPath();
   bowlPts.forEach((p, i) => i ? ctx.lineTo(sx(p.x), sy(p.y)) : ctx.moveTo(sx(p.x), sy(p.y)));
   const bl = bowlPts[bowlPts.length - 1], bf = bowlPts[0];
@@ -426,7 +519,7 @@ function draw() {
   if (held) {
     drawBody(held, held.color, 0.85);
     // 落下位置のガイド線
-    ctx.strokeStyle = 'rgba(0,0,0,.2)'; ctx.setLineDash([4, 6]); ctx.beginPath();
+    ctx.strokeStyle = T().guide; ctx.setLineDash([4, 6]); ctx.beginPath();
     // 現在の向きでの左端・右端から真下に2本(Matterが持っている外接矩形を使うので計算は軽い)
     for (const x of [held.bounds.min.x, held.bounds.max.x]) {
       ctx.moveTo(sx(x), sy(held.bounds.max.y)); ctx.lineTo(sx(x), sy(GROUND_Y));
@@ -456,6 +549,25 @@ canvas.addEventListener('pointermove', e => {
   const r = canvas.getBoundingClientRect(); setHeldX(wx(e.clientX - r.left));
 });
 ['pointerup', 'pointercancel'].forEach(ev => canvas.addEventListener(ev, () => { dragging = false; }));
+
+// ダークモード(初期値はライト。ボタンで切り替え、選択は保存)
+const THEME = {
+  light: { abyss: '#e8dfd0', bowl: '#555', line: '#222', guide: 'rgba(0,0,0,.2)' },
+  dark:  { abyss: '#0e1014', bowl: '#8b92a3', line: '#c4c8d2', guide: 'rgba(255,255,255,.3)' }
+};
+let dark = false;
+function T() { return dark ? THEME.dark : THEME.light; }
+function applyTheme(d, save) {
+  dark = d;
+  document.documentElement.dataset.theme = d ? 'dark' : 'light';
+  $('theme').textContent = d ? '☀' : '🌙';
+  if (save) safeSet('bff-theme', d ? 'dark' : 'light');
+}
+{
+  const saved = safeGet('bff-theme');
+  applyTheme(saved === 'dark', false);
+}
+$('theme').addEventListener('click', () => applyTheme(!dark, true));
 
 // 利き手(スライダーの左右)
 function setHand(left) {
@@ -496,9 +608,29 @@ window.addEventListener('keydown', e => {
 $('retry').addEventListener('click', reset);
 $('revive').addEventListener('click', () => showRewardedAd(restoreSnapshot));
 $('share').addEventListener('click', () => {
-  const text = `【ブロック自由落下】 ${score}m 積んだ！ 物理がつらい… #ブロック自由落下`;
-  if (navigator.share) navigator.share({ text, url: location.href }).catch(() => {});
-  else window.open('https://twitter.com/intent/tweet?text=' + encodeURIComponent(text) + '&url=' + encodeURIComponent(location.href));
+  const text = `【ブロック自由落下】 ${peakScore}m・${peakCount}個 積んだ！ 物理がつらい… #ブロック自由落下 #クソゲー作ります`;
+  // ローカル(file://)で開いているときも、共有するURLは公開版にする
+  const url = /^https?:$/.test(location.protocol) && location.hostname !== 'localhost'
+    ? location.origin + location.pathname : 'https://nusbocrom.github.io/block-free-fall/';
+  const openTweet = () => window.open('https://twitter.com/intent/tweet?text=' + encodeURIComponent(text) + '&url=' + encodeURIComponent(url));
+  // 利用者が閉じただけ(AbortError)なら何もしない。それ以外の失敗はXの投稿画面に切り替える
+  const onFail = e => { if (!e || e.name !== 'AbortError') openTweet(); };
+  const send = file => {
+    if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
+      navigator.share({ text, url, files: [file] }).catch(onFail);
+    } else if (file) {                       // 画像を添付できない環境(主にPC): 保存してXの画面を開く
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(file); a.download = 'block-free-fall.png'; a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      openTweet();
+      $('share').textContent = '画像を保存しました。投稿に添付してね';
+      setTimeout(() => { $('share').textContent = 'シェアする'; }, 4000);
+    } else if (navigator.share) {
+      navigator.share({ text, url }).catch(onFail);
+    } else openTweet();
+  };
+  if (!peakShot) return send(null);
+  makeShareImage(blob => send(blob && new File([blob], 'block-free-fall.png', { type: 'image/png' })));
 });
 
 // ハッシュタグ検索で、みんなのシェアを見られる(サーバー不要)
