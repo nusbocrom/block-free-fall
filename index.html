@@ -24,7 +24,7 @@
     background: repeating-linear-gradient(-45deg, #fc0 0 22px, #222 22px 44px); animation: blink .35s steps(2) infinite; }
   #warn span { background: #222; color: #fc0; font-size: 26px; font-weight: bold; padding: 6px 18px; letter-spacing: 2px; }
   @keyframes blink { 50% { opacity: .35; } }
-  #hand, #theme { pointer-events: auto; font-size: 12px; padding: 4px 8px; border: 0; border-radius: 8px; background: var(--subtle); color: var(--text); }
+  #hand, #theme, #help { pointer-events: auto; font-size: 12px; padding: 4px 8px; border: 0; border-radius: 8px; background: var(--subtle); color: var(--text); }
   #stage.lefty #rot { right: auto; left: 6px; }
   #msg { position: absolute; top: 40%; left: 0; right: 0; text-align: center; font-size: 28px; font-weight: bold;
     color: #d33; pointer-events: none; opacity: 0; transition: opacity .3s; }
@@ -53,17 +53,62 @@
     background: var(--strong); color: var(--strongText); font-size: 14px; font-weight: bold; display: flex; align-items: center;
     justify-content: center; box-shadow: 0 2px 0 rgba(0,0,0,.3); }
   #rotMark { position: absolute; left: 0; right: 0; top: 50%; height: 2px; background: var(--track); }
+  #howto { position: absolute; inset: 0; z-index: 8; display: none; background: rgba(0,0,0,.72); color: #fff;
+    font-weight: bold; text-align: center; }
+  #howto .h { position: absolute; left: 24px; right: 24px; font-size: 18px; line-height: 1.5; }
+  #howto .h b { color: #fc0; }
+  #hMove { top: 22%; }
+  #hSlider { top: 38%; right: 76px; left: 24px; text-align: right; }
+  #stage.lefty #hSlider { left: 76px; right: 24px; text-align: left; }
+  #hDrop { bottom: 14px; }
+  #hStart { position: absolute; left: 0; right: 0; top: 62%; font-size: 15px; opacity: .85; }
+  .side { display: none; position: fixed; top: 24px; width: 240px; font-size: 14px; line-height: 1.7; color: var(--text); }
+  #sideL { left: 24px; } #sideR { right: 24px; }
+  .side h1 { margin: 0 0 4px; font-size: 24px; }
+  .side h2 { margin: 18px 0 4px; font-size: 14px; opacity: .7; }
+  .side kbd { display: inline-block; min-width: 1.6em; padding: 0 6px; border-radius: 5px; background: var(--btn);
+    box-shadow: 0 2px 0 var(--btnShadow); text-align: center; font-family: inherit; font-size: 12px; }
+  .side a { color: inherit; font-weight: bold; }
+  .rec #btns { display: none; }
+  /* PC: 縦長(9:16)の枠で中央に表示。縦型動画の撮影にもそのまま使える */
+  @media (min-width: 900px) {
+    #app { max-width: none; width: min(520px, calc(100vh * 9 / 16)); border-radius: 14px; overflow: hidden;
+      box-shadow: 0 0 40px rgba(0,0,0,.28); }
+  }
+  @media (min-width: 1100px) { .side { display: block; } }
 </style>
 </head>
 <body>
+<aside class="side" id="sideL">
+  <h1>ブロック自由落下</h1>
+  <div>ツルツル滑る、落下ブロック積み。</div>
+  <h2>PCでの操作</h2>
+  <div>押している間 … ピースが指(マウス)についてくる<br>
+    <kbd>ホイール</kbd> 回転(10度ずつ)<br>
+    <kbd>←</kbd><kbd>→</kbd> 移動<br>
+    <kbd>↑</kbd><kbd>↓</kbd> 回転(長押しで連続)<br>
+    <kbd>Space</kbd> <kbd>Enter</kbd> <kbd>右クリック</kbd> 落とす</div>
+</aside>
+<aside class="side" id="sideR">
+  <!-- PC用の広告枠(将来: ここにバナー広告など) -->
+  <div id="adSide"></div>
+  <h2>みんなの記録</h2>
+  <div><a href="https://x.com/search?q=%23%E3%83%96%E3%83%AD%E3%83%83%E3%82%AF%E8%87%AA%E7%94%B1%E8%90%BD%E4%B8%8B&amp;src=typed_query&amp;f=top" target="_blank" rel="noopener">#ブロック自由落下</a> をXで見る</div>
+</aside>
 <div id="app">
   <div id="stage">
     <canvas id="c"></canvas>
-    <div id="hud"><span id="hScore">高さ 0m</span><span id="btns"><button id="hand">スライダー: 右</button><button id="theme">🌙</button></span><span id="hLife"></span></div>
+    <div id="hud"><span id="hScore">高さ 0m</span><span id="btns"><button id="hand">スライダー: 右</button><button id="theme">🌙</button><button id="help">？</button></span><span id="hLife"></span></div>
     <div id="msg"></div>
     <div id="warn"><span>⚠ 注意 ⚠ 何かが来る</span></div>
     <div id="rot"><div id="rotTrack"></div><div id="rotMark"></div><div id="rotThumb">0°</div></div>
     <div id="adDummy"><div>広告(ダミー)</div><div class="n" id="adN">3</div><small>終わると、直前に戻ります</small></div>
+    <div id="howto">
+      <div class="h" id="hMove">👆 <b>画面を押している間</b>、<br>ピースが指についてくる</div>
+      <div class="h" id="hSlider">この<b>スライダー</b>で回転 ➡<br>(上下に動かす)</div>
+      <div class="h" id="hDrop">離したい位置で <b>⬇ボタン</b> で落とす ⬇</div>
+      <div id="hStart">タップで始める</div>
+    </div>
     <div id="over">
       <canvas id="overBg"></canvas>
       <h1 id="oTitle">ブロック自由落下</h1>
@@ -122,6 +167,14 @@ const SHAPES = {
   L: { cells: [[1,-1],[-1,0],[0,0],[1,0]], color: '#e92' }
 };
 const KEYS = Object.keys(SHAPES);
+
+// URLの付け足し: ?rec = ボタン類を隠す(画面録画向け)、?boss=1 = 変な物体を指定の高さ(m)で呼ぶ(動画撮影向け)
+{
+  const q = new URLSearchParams(location.search);
+  if (q.has('rec')) document.documentElement.classList.add('rec');
+  const bq = parseFloat(q.get('boss'));
+  if (bq > 0) CFG.bossHeight = bq;
+}
 
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
@@ -339,8 +392,9 @@ function setRot(deg) {
   $('rotThumb').style.top = (f * 100) + '%';
   $('rotThumb').textContent = deg + '°';
 }
-function rotateHeld() {          // キー操作用: 90度ずつ回す
-  let d = rotDeg + 90; if (d > 180) d -= 360;
+function rotateHeld(dir) {       // 1刻み(CFG.rotStep)ずつ回す。端は一周してつながる
+  let d = rotDeg + dir * CFG.rotStep;
+  if (d > 180) d -= 360; if (d < -180) d += 360;
   setRot(d);
 }
 
@@ -541,9 +595,12 @@ function loop(t) {
 // 長押し(押している間)は、触れている位置のx座標にピースがついてくる
 let dragging = false;
 canvas.addEventListener('pointerdown', e => {
+  if (e.pointerType === 'mouse' && e.button !== 0) return;   // 右クリックは移動に使わない
   dragging = true; canvas.setPointerCapture(e.pointerId);
   const r = canvas.getBoundingClientRect(); setHeldX(wx(e.clientX - r.left));
 });
+// 右クリックで落とす(PC)
+canvas.addEventListener('contextmenu', e => { e.preventDefault(); dropHeld(); });
 canvas.addEventListener('pointermove', e => {
   if (!dragging) return;
   const r = canvas.getBoundingClientRect(); setHeldX(wx(e.clientX - r.left));
@@ -567,6 +624,16 @@ function applyTheme(d, save) {
   const saved = safeGet('bff-theme');
   applyTheme(saved === 'dark', false);
 }
+// 操作説明(スマホなど、タッチ操作の初回だけ自動で出す。右上の「？」でいつでも見られる)
+function showHowto(show) {
+  $('howto').style.display = show ? 'block' : 'none';
+  if (!show) safeSet('bff-howto', '1');
+}
+$('howto').addEventListener('pointerdown', e => { e.preventDefault(); showHowto(false); });
+$('help').addEventListener('click', () => showHowto(true));
+if (!safeGet('bff-howto') && window.matchMedia && matchMedia('(pointer: coarse)').matches
+    && !document.documentElement.classList.contains('rec')) showHowto(true);
+
 $('theme').addEventListener('click', () => applyTheme(!dark, true));
 
 // 利き手(スライダーの左右)
@@ -581,9 +648,7 @@ setHand(safeGet('bff-hand') === 'L');
 // マウスホイールで回転(1ノッチ=1刻み、端は一周してつながる)
 $('stage').addEventListener('wheel', e => {
   e.preventDefault();
-  let d = rotDeg + (e.deltaY > 0 ? 1 : -1) * CFG.rotStep;
-  if (d > 180) d -= 360; if (d < -180) d += 360;
-  setRot(d);
+  rotateHeld(e.deltaY > 0 ? 1 : -1);
 }, { passive: false });
 
 // 回転スライダー
@@ -601,8 +666,10 @@ $('bDrop').addEventListener('pointerdown', e => { e.preventDefault(); dropHeld()
 window.addEventListener('keydown', e => {
   if (e.key === 'ArrowLeft') moveHeld(-12);
   else if (e.key === 'ArrowRight') moveHeld(12);
-  else if (e.key === 'ArrowUp' || e.key === 'r') rotateHeld();
-  else if (e.key === ' ' || e.key === 'ArrowDown') { e.preventDefault(); dropHeld(); }
+  // 上下は押し続けると10度ずつ連続で回る(キーリピート)。上=反時計回り、下=時計回り(スライダーと同じ向き)
+  else if (e.key === 'ArrowUp') { e.preventDefault(); rotateHeld(-1); }
+  else if (e.key === 'ArrowDown') { e.preventDefault(); rotateHeld(1); }
+  else if ((e.key === ' ' || e.key === 'Enter') && state === 'play' && held) { e.preventDefault(); dropHeld(); }
 });
 
 $('retry').addEventListener('click', reset);
