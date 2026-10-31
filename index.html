@@ -146,6 +146,7 @@ const CFG = {
   bossHeight: 5,         // この高さ(m)に達すると「終わらせにかかる」物体が来る
   bossWeight: 1.5,       // 変な物体の重い部分の密度倍率(大きいほど塔を壊す)
   bossInterval: 4,       // 以降は、この高さ(m)ごとに来る
+  interstitialEvery: 10,  // ゲーム間の広告を挟む頻度(何回に1回)
   warnFrames: 110,       // 注意の帯を出してから物体が出るまでのフレーム数
   lives: 3,              // 落としていい回数
   settleFrames: 45,      // 静止とみなすフレーム数
@@ -231,6 +232,7 @@ function reset() {
   $('over').style.display = 'none';
   updateHud();
   spawn();
+  Ads.gameplayStart();
 }
 
 // なだらかなお椀: 中央がGROUND_Y、縁が bowlRise だけ高い放物線を、短い板の連続で作る
@@ -348,9 +350,39 @@ function restoreSnapshot() {
   usedRevive = true; state = 'play';
   $('over').style.display = 'none';
   updateHud(); flash('もう一回！');
+  Ads.gameplayStart();
 }
 
-// 広告の差し込み口。今はダミー。本番ではリワード広告SDKを呼び、視聴完了で onReward() を呼ぶ
+// ===== 広告の受け口 =====
+// ゲーム側は Ads.* だけを呼ぶ。配信サイト(Poki、CrazyGamesなど)のSDKに合わせて provider を差し替える。
+//   gameplayStart / gameplayStop : 遊び始め・遊び終わり(サイトによっては必須の通知)
+//   interstitial(done)           : ゲーム間の広告。終わったら done() を呼ぶ
+//   rewarded(onReward, onNoAd)   : 見終わったら onReward()、出せなければ onNoAd() を呼ぶ
+// SDKの呼び方の例(いずれも投稿先の最新の公式資料で要確認):
+//   Poki       : PokiSDK.gameplayStart() / gameplayStop() / commercialBreak() / rewardedBreak()
+//   CrazyGames : CrazyGames.SDK.game.gameplayStart() / .ad.requestAd('midgame' | 'rewarded', {adFinished, adError})
+const dummyProvider = {
+  gameplayStart() {}, gameplayStop() {},
+  interstitial(done) { done(); },                 // ダミーは何も出さない
+  rewarded(onReward) { showRewardedAd(onReward); }
+};
+const Ads = {
+  provider: dummyProvider,
+  games: 0,
+  gameplayStart() { try { this.provider.gameplayStart(); } catch (e) {} },
+  gameplayStop() { try { this.provider.gameplayStop(); } catch (e) {} },
+  // 「もう一回」の前: 数回に1回だけ、ゲーム間の広告を挟む
+  beforeRetry(next) {
+    this.games++;
+    if (this.games % CFG.interstitialEvery !== 0) return next();
+    try { this.provider.interstitial(next); } catch (e) { next(); }
+  },
+  rewarded(onReward, onNoAd) {
+    try { this.provider.rewarded(onReward, onNoAd); } catch (e) { onNoAd && onNoAd(); }
+  }
+};
+
+// いまはダミー: 3秒のカウントダウンで広告を見たことにする
 function showRewardedAd(onReward) {
   // いまはダミー: 3秒のカウントダウンのあとに戻る。確認ダイアログは出さない
   const box = $('adDummy'), n = $('adN'); let left = 3;
@@ -492,6 +524,7 @@ function drawOverBg() {
 
 function gameOver() {
   state = 'over';
+  Ads.gameplayStop();
   if (peakScore > best) { best = peakScore; safeSet('bff-best', best); }
   $('oScore').textContent = peakScore + 'm';
   $('oCount').textContent = '乗せた個数(最多) ' + peakCount + '個';
@@ -672,8 +705,11 @@ window.addEventListener('keydown', e => {
   else if ((e.key === ' ' || e.key === 'Enter') && state === 'play' && held) { e.preventDefault(); dropHeld(); }
 });
 
-$('retry').addEventListener('click', reset);
-$('revive').addEventListener('click', () => showRewardedAd(restoreSnapshot));
+$('retry').addEventListener('click', () => Ads.beforeRetry(reset));
+$('revive').addEventListener('click', () => Ads.rewarded(restoreSnapshot, () => {
+  $('revive').textContent = 'いま広告がありません';
+  setTimeout(() => { $('revive').textContent = '▶ 広告を見て、直前に戻る(1回だけ)'; }, 2000);
+}));
 $('share').addEventListener('click', () => {
   const text = `【ブロック自由落下】 ${peakScore}m・${peakCount}個 積んだ！ 物理がつらい… #ブロック自由落下 #クソゲー作ります`;
   // ローカル(file://)で開いているときも、共有するURLは公開版にする
