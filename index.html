@@ -12,6 +12,11 @@
   canvas { width: 100%; height: 100%; display: block; }
   #hud { position: absolute; top: 8px; left: 12px; right: 12px; display: flex; justify-content: space-between;
     font-weight: bold; color: #333; pointer-events: none; font-size: 16px; }
+  #warn { position: absolute; left: 0; right: 0; top: 28%; height: 84px; display: none; align-items: center;
+    justify-content: center; pointer-events: none; z-index: 5;
+    background: repeating-linear-gradient(-45deg, #fc0 0 22px, #222 22px 44px); animation: blink .35s steps(2) infinite; }
+  #warn span { background: #222; color: #fc0; font-size: 26px; font-weight: bold; padding: 6px 18px; letter-spacing: 2px; }
+  @keyframes blink { 50% { opacity: .35; } }
   #hand { pointer-events: auto; font-size: 12px; padding: 4px 8px; border: 0; border-radius: 8px; background: rgba(0,0,0,.12); color: #333; }
   #stage.lefty #rot { right: auto; left: 6px; }
   #msg { position: absolute; top: 40%; left: 0; right: 0; text-align: center; font-size: 28px; font-weight: bold;
@@ -25,6 +30,7 @@
   #over h1 { margin: 0; font-size: 30px; }
   #over .big { font-size: 48px; font-weight: bold; }
   #over button { font-size: 20px; padding: 12px 28px; border: 0; border-radius: 10px; background: #333; color: #fff; }
+  #over button#revive { background: #fc0; color: #222; font-weight: bold; box-shadow: 0 3px 0 #a80; }
   #over button.sub { background: #fff; color: #333; box-shadow: 0 2px 0 #a99; }
   #adslot { min-height: 0; }
   #rot { position: absolute; right: 6px; top: 14%; bottom: 6%; width: 56px; touch-action: none; }
@@ -42,6 +48,7 @@
     <canvas id="c"></canvas>
     <div id="hud"><span id="hScore">高さ 0m</span><button id="hand">スライダー: 右</button><span id="hLife"></span></div>
     <div id="msg"></div>
+    <div id="warn"><span>⚠ 注意 ⚠ 何かが来る</span></div>
     <div id="rot"><div id="rotTrack"></div><div id="rotMark"></div><div id="rotThumb">0°</div></div>
     <div id="over">
       <h1 id="oTitle">ブロック自由落下</h1>
@@ -51,6 +58,7 @@
       <div id="oComment"></div>
       <!-- 広告の差し込み口(将来: リワード広告「復活」やバナーをここに) -->
       <div id="adslot"></div>
+      <button id="revive">▶ 広告を見て、直前に戻る(1回だけ)</button>
       <button id="retry">もう一回</button>
       <button id="share" class="sub">シェアする</button>
     </div>
@@ -71,7 +79,12 @@ const CFG = {
   restitution: 0.1,      // 反発(大きいほど跳ねる)
   density: 0.0012,
   block: 30,             // 1マスの大きさ
-  platformWidth: 150,    // 土台の幅(狭いほど難しい)
+  bowlHalfWidth: 150,    // お椀の半幅
+  bowlRise: 30,          // お椀の縁の高さ(大きいほど急で中央に寄る)
+  bossHeight: 5,         // この高さ(m)に達すると「終わらせにかかる」物体が来る
+  bossWeight: 1.5,       // 変な物体の重い部分の密度倍率(大きいほど塔を壊す)
+  bossInterval: 4,       // 以降は、この高さ(m)ごとに来る
+  warnFrames: 110,       // 注意の帯を出してから物体が出るまでのフレーム数
   lives: 3,              // 落としていい回数
   settleFrames: 45,      // 静止とみなすフレーム数
   maxWaitMs: 7000,       // 静止しなくても次を出すまでの時間
@@ -99,6 +112,8 @@ const $ = id => document.getElementById(id);
 
 let engine, platform, held, pieces, lives, score, best, state, scale, targetScale, cw, ch, dpr;
 let settleCount, droppedAt, current, msgTimer;
+let bowlPts, bossPending, nextBoss, spawnDelay;
+let snap, usedRevive;
 best = Number(safeGet('bff-best')) || 0;
 
 function safeGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
@@ -135,10 +150,9 @@ function reset() {
   engine = Engine.create();
   engine.gravity.y = CFG.gravity;
   engine.positionIterations = 8;
-  platform = Bodies.rectangle(W / 2, GROUND_Y + 15, CFG.platformWidth, 30, {
-    isStatic: true, friction: CFG.friction, frictionStatic: CFG.frictionStatic, restitution: 0.1 });
-  platform.color = '#555';
-  Composite.add(engine.world, platform);
+  buildBowl();
+  bossPending = false; nextBoss = CFG.bossHeight; spawnDelay = 0;
+  snap = null; usedRevive = false;
   pieces = []; lives = CFG.lives; score = 0; held = null; current = null;
   scale = targetScale = baseScale();
   state = 'play';
@@ -147,17 +161,129 @@ function reset() {
   spawn();
 }
 
+// なだらかなお椀: 中央がGROUND_Y、縁が bowlRise だけ高い放物線を、短い板の連続で作る
+function buildBowl() {
+  const n = 20, pts = [];
+  for (let i = 0; i <= n; i++) {
+    const u = -1 + 2 * i / n;
+    pts.push({ x: W / 2 + u * CFG.bowlHalfWidth, y: GROUND_Y - CFG.bowlRise * u * u });
+  }
+  bowlPts = pts;
+  const T = 30;
+  for (let i = 0; i < n; i++) {
+    const a = pts[i], b = pts[i + 1];
+    const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy);
+    const cx = (a.x + b.x) / 2 - dy / len * T / 2, cy = (a.y + b.y) / 2 + dx / len * T / 2;
+    Composite.add(engine.world, Bodies.rectangle(cx, cy, len + 6, T, {
+      isStatic: true, angle: Math.atan2(dy, dx),
+      friction: CFG.friction, frictionStatic: CFG.frictionStatic, restitution: 0.1 }));
+  }
+}
+
+// 終わらせにかかる変な形の物体
+function makeBoss(idx) {
+  const base = { friction: CFG.friction, frictionStatic: CFG.frictionStatic, restitution: CFG.restitution };
+  const light = { ...base, density: CFG.density }, heavy = { ...base, density: CFG.density * CFG.bossWeight };
+  const kinds = [
+    () => Body.create({ parts: [                       // 0: 片側だけ重いダンベル
+      Bodies.rectangle(0, 0, 220, 16, light), Bodies.circle(-110, 0, 30, heavy), Bodies.circle(110, 0, 16, light)] }),
+    () => Body.create({ parts: [0, 60, 120].map(d =>    // 1: トゲトゲの星
+      Bodies.rectangle(0, 0, 170, 18, { ...light, angle: d * Math.PI / 180 })) }),
+    () => Bodies.polygon(0, 0, 3, 56, heavy),           // 2: 巨大三角
+    () => Bodies.circle(0, 0, 38, heavy)                // 3: 転がる鉄球
+  ];
+  const b = kinds[idx !== undefined ? idx : Math.floor(Math.random() * kinds.length)]();
+  b.color = '#b3b';
+  return b;
+}
+
+// 確認用: URLに ?debug を付けると、各形を呼び出すボタンが出る
+const DEBUG_BOSS = ['ダンベル', '星', '三角', '鉄球'];
+function debugSwap(make) {
+  if (!held || state !== 'play') return;
+  Composite.remove(engine.world, held);
+  held = make();
+  Body.setStatic(held, true);
+  Body.setPosition(held, { x: W / 2, y: topY() + 60 });
+  Composite.add(engine.world, held);
+  setRot(0);
+}
+if (/[?&]debug/.test(location.search)) {
+  const box = document.createElement('div');
+  box.style.cssText = 'position:absolute;top:34px;left:8px;display:flex;flex-wrap:wrap;gap:4px;max-width:70%;z-index:6';
+  const add = (label, make) => {
+    const b = document.createElement('button');
+    b.textContent = label; b.style.cssText = 'font-size:12px;padding:4px 8px;border:0;border-radius:6px;background:#fff';
+    b.addEventListener('click', () => debugSwap(make)); box.appendChild(b);
+  };
+  DEBUG_BOSS.forEach((n, i) => add(n, () => makeBoss(i)));
+  KEYS.forEach(k => add(k, () => makePiece(k)));
+  document.addEventListener('DOMContentLoaded', () => $('stage').appendChild(box));
+  if (document.readyState !== 'loading') $('stage').appendChild(box);
+}
+
+function showWarning() {
+  $('warn').style.display = 'flex';
+  setTimeout(() => { $('warn').style.display = 'none'; }, CFG.warnFrames * 1000 / 60);
+}
+
 function spawn() {
-  const key = KEYS[Math.floor(Math.random() * KEYS.length)];
-  held = makePiece(key);
+  if (bossPending) {
+    held = makeBoss(); bossPending = false; nextBoss = score + CFG.bossInterval;
+    flash('なんか来た');
+  } else {
+    held = makePiece(KEYS[Math.floor(Math.random() * KEYS.length)]);
+  }
   Body.setStatic(held, true);
   Body.setPosition(held, { x: W / 2, y: topY() + 60 });
   Composite.add(engine.world, held);
   setRot(0);
 }
 
+// 「直前に戻る」用: ピースを落とす直前の状態を覚えておく
+function takeSnapshot() {
+  snap = {
+    items: pieces.map(p => ({ body: p, pos: { x: p.position.x, y: p.position.y }, angle: p.angle,
+      vel: { x: p.velocity.x, y: p.velocity.y }, angVel: p.angularVelocity })),
+    dropped: held, x: held.position.x, rotDeg, lives, bossPending, nextBoss
+  };
+}
+
+function restoreSnapshot() {
+  const sn = snap;
+  for (const p of pieces) Composite.remove(engine.world, p);
+  if (held) Composite.remove(engine.world, held);
+  for (const it of sn.items) {
+    const p = it.body;
+    Composite.add(engine.world, p);
+    Body.setPosition(p, it.pos); Body.setAngle(p, it.angle);
+    Body.setVelocity(p, it.vel); Body.setAngularVelocity(p, it.angVel);
+  }
+  pieces = sn.items.map(it => it.body);
+  current = null; spawnDelay = 0;
+  // 落とす直前だったピースを、元の位置・向きで持たせ直す
+  held = sn.dropped;
+  Composite.remove(engine.world, held);
+  Body.setVelocity(held, { x: 0, y: 0 }); Body.setAngularVelocity(held, 0);
+  Body.setStatic(held, true);
+  Body.setPosition(held, { x: sn.x, y: topY() + 60 });
+  Composite.add(engine.world, held);
+  setRot(sn.rotDeg);
+  lives = Math.min(CFG.lives, sn.lives + 1);
+  bossPending = sn.bossPending; nextBoss = sn.nextBoss;
+  usedRevive = true; state = 'play';
+  $('over').style.display = 'none';
+  updateHud(); flash('もう一回！');
+}
+
+// 広告の差し込み口。今はダミー。本番ではリワード広告SDKを呼び、視聴完了で onReward() を呼ぶ
+function showRewardedAd(onReward) {
+  if (confirm('(ダミー)広告を見たことにして、直前に戻りますか？')) onReward();
+}
+
 function dropHeld() {
   if (state !== 'play' || !held) return;
+  takeSnapshot();
   Body.setStatic(held, false);
   Body.setVelocity(held, { x: 0, y: 1 });
   pieces.push(held);
@@ -171,14 +297,17 @@ function moveHeld(dx) {
 }
 function setHeldX(x) {
   if (!held) return;
-  const half = 60;
-  Body.setPosition(held, { x: Math.max(half, Math.min(W - half, x)), y: held.position.y });
+  Body.setPosition(held, { x, y: held.position.y });
+  // はみ出し防止(外接矩形で判定するので、大きな物体や回転後でも画面内に収まる)
+  const b = held.bounds;
+  if (b.min.x < 0) Body.translate(held, { x: -b.min.x, y: 0 });
+  else if (b.max.x > W) Body.translate(held, { x: W - b.max.x, y: 0 });
 }
 // 回転スライダー(縦)。上=-180°、中央=0°、下=+180°。刻みは CFG.rotStep
 let rotDeg = 0;
 function setRot(deg) {
   rotDeg = deg;
-  if (held) Body.setAngle(held, deg * Math.PI / 180);
+  if (held) { Body.setAngle(held, deg * Math.PI / 180); setHeldX(held.position.x); }
   const f = (deg + 180) / 360;
   $('rotThumb').style.top = (f * 100) + '%';
   $('rotThumb').textContent = deg + '°';
@@ -224,7 +353,7 @@ function gameOver() {
   $('oScore').textContent = score + 'm';
   $('oBest').textContent = 'ベスト ' + best + 'm';
   $('oComment').textContent = END_MSG[Math.floor(Math.random() * END_MSG.length)];
-  // 将来ここで広告表示(インタースティシャル/リワード)を呼ぶ
+  $('revive').style.display = (!usedRevive && snap) ? '' : 'none';
   setTimeout(() => { $('over').style.display = 'flex'; }, 700);
 }
 
@@ -246,15 +375,19 @@ function step() {
       }
     }
     if (state === 'play') {
+      const h = towerHeight();
+      if (h !== score) { score = h; updateHud(); }
       // 次のピース投入判定
       if (current) {
         if (settled(current)) settleCount++; else settleCount = 0;
         if (settleCount > CFG.settleFrames || performance.now() - droppedAt > CFG.maxWaitMs) {
-          current = null; spawn();
+          current = null;
+          if (!bossPending && score >= nextBoss) { bossPending = true; showWarning(); spawnDelay = CFG.warnFrames; }
+          else spawn();
         }
       }
-      const h = towerHeight();
-      if (h !== score) { score = h; updateHud(); }
+      // 注意の帯を見せてから変な物体を出す
+      if (!held && !current && spawnDelay > 0 && --spawnDelay === 0) spawn();
     }
     // カメラ
     targetScale = viewScale(score * 2 * CFG.block);   // 高さ(m)をワールド単位に戻す
@@ -280,7 +413,12 @@ function draw() {
   ctx.clearRect(0, 0, cw, ch);
   // 奈落の目印
   ctx.fillStyle = '#e8dfd0'; ctx.fillRect(0, sy(GROUND_Y + 30), cw, ch);
-  drawBody(platform, platform.color, 1);
+  ctx.fillStyle = '#555'; ctx.strokeStyle = '#222'; ctx.lineWidth = Math.max(1.5, 2 * scale);
+  ctx.beginPath();
+  bowlPts.forEach((p, i) => i ? ctx.lineTo(sx(p.x), sy(p.y)) : ctx.moveTo(sx(p.x), sy(p.y)));
+  const bl = bowlPts[bowlPts.length - 1], bf = bowlPts[0];
+  ctx.lineTo(sx(bl.x), sy(bl.y + 30)); ctx.lineTo(sx(bf.x), sy(bf.y + 30));
+  ctx.closePath(); ctx.fill(); ctx.stroke();
   for (const p of pieces) drawBody(p, p.color, 1);
   if (held) {
     drawBody(held, held.color, 0.85);
@@ -353,6 +491,7 @@ window.addEventListener('keydown', e => {
 });
 
 $('retry').addEventListener('click', reset);
+$('revive').addEventListener('click', () => showRewardedAd(restoreSnapshot));
 $('share').addEventListener('click', () => {
   const text = `ブロック自由落下で ${score}m 積んだ！ 物理がつらい… #ブロック自由落下`;
   if (navigator.share) navigator.share({ text, url: location.href }).catch(() => {});
