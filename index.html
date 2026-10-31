@@ -198,7 +198,7 @@ function makeBoss(idx) {
   return b;
 }
 
-// 確認用: URLに ?debug を付けると、各形を呼び出すボタンが出る
+// 確認用(手元のみ): URLに ?debug を付けると、各形を呼び出すボタンが出る
 const DEBUG_BOSS = ['ダンベル', '星', '三角', '鉄球'];
 function debugSwap(make) {
   if (!held || state !== 'play') return;
@@ -209,7 +209,9 @@ function debugSwap(make) {
   Composite.add(engine.world, held);
   setRot(0);
 }
-if (/[?&]debug/.test(location.search)) {
+// 公開版(https)では無効。手元のファイルやlocalhostで開いたときだけ使える
+const IS_LOCAL = location.protocol === 'file:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+if (IS_LOCAL && /[?&]debug/.test(location.search)) {
   const box = document.createElement('div');
   box.style.cssText = 'position:absolute;top:34px;left:8px;display:flex;flex-wrap:wrap;gap:4px;max-width:70%;z-index:6';
   const add = (label, make) => {
