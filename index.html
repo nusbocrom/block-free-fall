@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>ブロック自由落下</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #f4efe6; overflow: hidden; touch-action: none;
+    font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif; user-select: none; -webkit-user-select: none; }
+  #app { position: fixed; inset: 0; display: flex; flex-direction: column; max-width: 520px; margin: 0 auto; }
+  #stage { position: relative; flex: 1; min-height: 0; }
+  canvas { width: 100%; height: 100%; display: block; }
+  #hud { position: absolute; top: 8px; left: 12px; right: 12px; display: flex; justify-content: space-between;
+    font-weight: bold; color: #333; pointer-events: none; font-size: 16px; }
+  #hand { pointer-events: auto; font-size: 12px; padding: 4px 8px; border: 0; border-radius: 8px; background: rgba(0,0,0,.12); color: #333; }
+  #stage.lefty #rot { right: auto; left: 6px; }
+  #msg { position: absolute; top: 40%; left: 0; right: 0; text-align: center; font-size: 28px; font-weight: bold;
+    color: #d33; pointer-events: none; opacity: 0; transition: opacity .3s; }
+  #controls { display: flex; gap: 8px; padding: 8px; background: #ddd5c5; }
+  #controls button { flex: 1; font-size: 26px; padding: 14px 0; border: 0; border-radius: 10px; background: #fff;
+    box-shadow: 0 3px 0 #a99; touch-action: none; }
+  #controls button:active { transform: translateY(2px); box-shadow: 0 1px 0 #a99; }
+  #over { position: absolute; inset: 0; background: rgba(244,239,230,.94); display: none; flex-direction: column;
+    align-items: center; justify-content: center; gap: 12px; text-align: center; padding: 20px; }
+  #over h1 { margin: 0; font-size: 30px; }
+  #over .big { font-size: 48px; font-weight: bold; }
+  #over button { font-size: 20px; padding: 12px 28px; border: 0; border-radius: 10px; background: #333; color: #fff; }
+  #over button.sub { background: #fff; color: #333; box-shadow: 0 2px 0 #a99; }
+  #adslot { min-height: 0; }
+  #rot { position: absolute; right: 6px; top: 14%; bottom: 6%; width: 56px; touch-action: none; }
+  #rotTrack { position: absolute; left: 50%; top: 0; bottom: 0; width: 10px; margin-left: -5px;
+    border-radius: 5px; background: rgba(0,0,0,.18); }
+  #rotThumb { position: absolute; left: 50%; width: 52px; height: 36px; margin: -18px 0 0 -26px; border-radius: 18px;
+    background: #333; color: #fff; font-size: 14px; font-weight: bold; display: flex; align-items: center;
+    justify-content: center; box-shadow: 0 2px 0 rgba(0,0,0,.3); }
+  #rotMark { position: absolute; left: 0; right: 0; top: 50%; height: 2px; background: rgba(0,0,0,.35); }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="stage">
+    <canvas id="c"></canvas>
+    <div id="hud"><span id="hScore">高さ 0m</span><button id="hand">スライダー: 右</button><span id="hLife"></span></div>
+    <div id="msg"></div>
+    <div id="rot"><div id="rotTrack"></div><div id="rotMark"></div><div id="rotThumb">0°</div></div>
+    <div id="over">
+      <h1 id="oTitle">ブロック自由落下</h1>
+      <div>到達した高さ</div>
+      <div class="big" id="oScore">0m</div>
+      <div id="oBest"></div>
+      <div id="oComment"></div>
+      <!-- 広告の差し込み口(将来: リワード広告「復活」やバナーをここに) -->
+      <div id="adslot"></div>
+      <button id="retry">もう一回</button>
+      <button id="share" class="sub">シェアする</button>
+    </div>
+  </div>
+  <div id="controls">
+    <button id="bDrop">⬇</button>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+<script>
+// ===== 調整用パラメータ(ここをいじると理不尽さが変わる) =====
+const CFG = {
+  gravity: 0.9,          // 重力
+  maxFallSpeed: 9,       // 落下速度の上限(大きいほど着地の衝撃が強い)
+  friction: 0.15,        // 摩擦(小さいほど滑る)
+  frictionStatic: 0.3,
+  restitution: 0.1,      // 反発(大きいほど跳ねる)
+  density: 0.0012,
+  block: 30,             // 1マスの大きさ
+  platformWidth: 150,    // 土台の幅(狭いほど難しい)
+  lives: 3,              // 落としていい回数
+  settleFrames: 45,      // 静止とみなすフレーム数
+  maxWaitMs: 7000,       // 静止しなくても次を出すまでの時間
+  rotStep: 10,           // 回転スライダーの刻み(度)
+  wobble: 0.0006         // 着地時にランダムに加える回転の揺れ(理不尽さ)
+};
+
+const { Engine, Bodies, Body, Composite, Events } = Matter;
+const W = 400;               // ワールドの基準幅
+const GROUND_Y = 0;          // 土台の上面
+const SHAPES = {
+  I: { cells: [[-1.5,0],[-0.5,0],[0.5,0],[1.5,0]], color: '#4ac' },
+  O: { cells: [[-0.5,-0.5],[0.5,-0.5],[-0.5,0.5],[0.5,0.5]], color: '#eb3' },
+  T: { cells: [[-1,0],[0,0],[1,0],[0,-1]], color: '#a6c' },
+  S: { cells: [[-1,0],[0,0],[0,-1],[1,-1]], color: '#5b6' },
+  Z: { cells: [[-1,-1],[0,-1],[0,0],[1,0]], color: '#e55' },
+  J: { cells: [[-1,-1],[-1,0],[0,0],[1,0]], color: '#58d' },
+  L: { cells: [[1,-1],[-1,0],[0,0],[1,0]], color: '#e92' }
+};
+const KEYS = Object.keys(SHAPES);
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const $ = id => document.getElementById(id);
+
+let engine, platform, held, pieces, lives, score, best, state, scale, targetScale, cw, ch, dpr;
+let settleCount, droppedAt, current, msgTimer;
+best = Number(safeGet('bff-best')) || 0;
+
+function safeGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function safeSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+
+function resize() {
+  dpr = window.devicePixelRatio || 1;
+  const r = canvas.getBoundingClientRect();
+  cw = r.width; ch = r.height;
+  canvas.width = cw * dpr; canvas.height = ch * dpr;
+}
+window.addEventListener('resize', resize);
+
+function baseScale() { return cw / W; }
+function viewScale(h) { return Math.min(baseScale(), ch / (h + 420)); }
+function sx(x) { return cw / 2 + (x - W / 2) * scale; }
+function sy(y) { return ch - 50 * scale + (y - GROUND_Y) * scale; }
+function wx(px) { return (px - cw / 2) / scale + W / 2; }
+function topY() { return GROUND_Y + 50 - ch / scale; }   // 画面上端のワールドy
+
+function makePiece(key) {
+  const B = CFG.block, s = SHAPES[key];
+  const parts = s.cells.map(([cx, cy]) => Bodies.rectangle(cx * B, cy * B, B, B, {
+    friction: CFG.friction, frictionStatic: CFG.frictionStatic, restitution: CFG.restitution,
+    density: CFG.density, frictionAir: 0.001
+  }));
+  const body = Body.create({ parts, friction: CFG.friction, frictionStatic: CFG.frictionStatic,
+    restitution: CFG.restitution });
+  body.color = s.color;
+  return body;
+}
+
+function reset() {
+  engine = Engine.create();
+  engine.gravity.y = CFG.gravity;
+  engine.positionIterations = 8;
+  platform = Bodies.rectangle(W / 2, GROUND_Y + 15, CFG.platformWidth, 30, {
+    isStatic: true, friction: CFG.friction, frictionStatic: CFG.frictionStatic, restitution: 0.1 });
+  platform.color = '#555';
+  Composite.add(engine.world, platform);
+  pieces = []; lives = CFG.lives; score = 0; held = null; current = null;
+  scale = targetScale = baseScale();
+  state = 'play';
+  $('over').style.display = 'none';
+  updateHud();
+  spawn();
+}
+
+function spawn() {
+  const key = KEYS[Math.floor(Math.random() * KEYS.length)];
+  held = makePiece(key);
+  Body.setStatic(held, true);
+  Body.setPosition(held, { x: W / 2, y: topY() + 60 });
+  Composite.add(engine.world, held);
+  setRot(0);
+}
+
+function dropHeld() {
+  if (state !== 'play' || !held) return;
+  Body.setStatic(held, false);
+  Body.setVelocity(held, { x: 0, y: 1 });
+  pieces.push(held);
+  current = held; held = null;
+  settleCount = 0; droppedAt = performance.now();
+}
+
+function moveHeld(dx) {
+  if (!held) return;
+  setHeldX(held.position.x + dx);
+}
+function setHeldX(x) {
+  if (!held) return;
+  const half = 60;
+  Body.setPosition(held, { x: Math.max(half, Math.min(W - half, x)), y: held.position.y });
+}
+// 回転スライダー(縦)。上=-180°、中央=0°、下=+180°。刻みは CFG.rotStep
+let rotDeg = 0;
+function setRot(deg) {
+  rotDeg = deg;
+  if (held) Body.setAngle(held, deg * Math.PI / 180);
+  const f = (deg + 180) / 360;
+  $('rotThumb').style.top = (f * 100) + '%';
+  $('rotThumb').textContent = deg + '°';
+}
+function rotateHeld() {          // キー操作用: 90度ずつ回す
+  let d = rotDeg + 90; if (d > 180) d -= 360;
+  setRot(d);
+}
+
+function towerHeight() {
+  let top = GROUND_Y;
+  for (const p of pieces) {
+    if (p === current && !settled(p)) continue;
+    if (p.position.y > GROUND_Y + 150) continue;
+    top = Math.min(top, p.bounds.min.y);
+  }
+  return Math.max(0, Math.round((GROUND_Y - top) / CFG.block * 0.5 * 10) / 10);  // 1マス=0.5m
+}
+function settled(p) { return p.speed < 0.25 && Math.abs(p.angularSpeed) < 0.02; }
+
+const MISS_MSG = ['あっ', 'ツルッ', 'さようなら', '重力は正義', 'そこから？', '滑った！', 'ありがとう物理'];
+const END_MSG = ['摩擦は友達ではなかった', '積んだ気になってた？', '物理が本気を出した', 'もう少しで…ではなかった', '高さ？ そんなものは幻想'];
+
+function flash(text) {
+  const m = $('msg'); m.textContent = text; m.style.opacity = 1;
+  clearTimeout(msgTimer); msgTimer = setTimeout(() => m.style.opacity = 0, 900);
+}
+function updateHud() {
+  $('hScore').textContent = '高さ ' + score + 'm';
+  $('hLife').textContent = '残り ' + '●'.repeat(Math.max(0, lives)) + '○'.repeat(CFG.lives - Math.max(0, lives));
+}
+
+function miss() {
+  lives--;
+  flash(MISS_MSG[Math.floor(Math.random() * MISS_MSG.length)]);
+  updateHud();
+  if (lives <= 0) gameOver();
+}
+
+function gameOver() {
+  state = 'over';
+  if (score > best) { best = score; safeSet('bff-best', best); }
+  $('oScore').textContent = score + 'm';
+  $('oBest').textContent = 'ベスト ' + best + 'm';
+  $('oComment').textContent = END_MSG[Math.floor(Math.random() * END_MSG.length)];
+  // 将来ここで広告表示(インタースティシャル/リワード)を呼ぶ
+  setTimeout(() => { $('over').style.display = 'flex'; }, 700);
+}
+
+function step() {
+  if (state === 'play' || state === 'over') {
+    Engine.update(engine, 1000 / 60);
+    // 落下速度に上限をかけて、着地の衝撃を抑える
+    for (const p of pieces) {
+      if (p.velocity.y > CFG.maxFallSpeed) Body.setVelocity(p, { x: p.velocity.x, y: CFG.maxFallSpeed });
+    }
+    // 落下判定
+    for (let i = pieces.length - 1; i >= 0; i--) {
+      const p = pieces[i];
+      if (p.position.y > GROUND_Y + 350) {
+        Composite.remove(engine.world, p);
+        pieces.splice(i, 1);
+        if (p === current) { current = null; if (state === 'play') { miss(); if (state === 'play') spawn(); } }
+        else if (state === 'play') miss();
+      }
+    }
+    if (state === 'play') {
+      // 次のピース投入判定
+      if (current) {
+        if (settled(current)) settleCount++; else settleCount = 0;
+        if (settleCount > CFG.settleFrames || performance.now() - droppedAt > CFG.maxWaitMs) {
+          current = null; spawn();
+        }
+      }
+      const h = towerHeight();
+      if (h !== score) { score = h; updateHud(); }
+    }
+    // カメラ
+    targetScale = viewScale(score * 2 * CFG.block);   // 高さ(m)をワールド単位に戻す
+    scale += (targetScale - scale) * 0.05;
+    if (held) Body.setPosition(held, { x: held.position.x, y: topY() + 60 });
+  }
+}
+
+function drawBody(b, color, alpha) {
+  const parts = b.parts.length > 1 ? b.parts.slice(1) : [b];
+  ctx.fillStyle = color; ctx.strokeStyle = '#222'; ctx.lineWidth = Math.max(1.5, 2 * scale);
+  ctx.globalAlpha = alpha;
+  for (const p of parts) {
+    ctx.beginPath();
+    p.vertices.forEach((v, i) => i ? ctx.lineTo(sx(v.x), sy(v.y)) : ctx.moveTo(sx(v.x), sy(v.y)));
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function draw() {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cw, ch);
+  // 奈落の目印
+  ctx.fillStyle = '#e8dfd0'; ctx.fillRect(0, sy(GROUND_Y + 30), cw, ch);
+  drawBody(platform, platform.color, 1);
+  for (const p of pieces) drawBody(p, p.color, 1);
+  if (held) {
+    drawBody(held, held.color, 0.85);
+    // 落下位置のガイド線
+    ctx.strokeStyle = 'rgba(0,0,0,.2)'; ctx.setLineDash([4, 6]); ctx.beginPath();
+    // 現在の向きでの左端・右端から真下に2本(Matterが持っている外接矩形を使うので計算は軽い)
+    for (const x of [held.bounds.min.x, held.bounds.max.x]) {
+      ctx.moveTo(sx(x), sy(held.bounds.max.y)); ctx.lineTo(sx(x), sy(GROUND_Y));
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+}
+
+let last = 0, acc = 0;
+function loop(t) {
+  const dt = Math.min(100, t - last); last = t; acc += dt;
+  while (acc >= 1000 / 60) { step(); acc -= 1000 / 60; }
+  draw();
+  requestAnimationFrame(loop);
+}
+
+// ===== 入力 =====
+// 長押し(押している間)は、触れている位置のx座標にピースがついてくる
+let dragging = false;
+canvas.addEventListener('pointerdown', e => {
+  dragging = true; canvas.setPointerCapture(e.pointerId);
+  const r = canvas.getBoundingClientRect(); setHeldX(wx(e.clientX - r.left));
+});
+canvas.addEventListener('pointermove', e => {
+  if (!dragging) return;
+  const r = canvas.getBoundingClientRect(); setHeldX(wx(e.clientX - r.left));
+});
+['pointerup', 'pointercancel'].forEach(ev => canvas.addEventListener(ev, () => { dragging = false; }));
+
+// 利き手(スライダーの左右)
+function setHand(left) {
+  $('stage').classList.toggle('lefty', left);
+  $('hand').textContent = 'スライダー: ' + (left ? '左' : '右');
+  safeSet('bff-hand', left ? 'L' : 'R');
+}
+$('hand').addEventListener('click', () => setHand(!$('stage').classList.contains('lefty')));
+setHand(safeGet('bff-hand') === 'L');
+
+// マウスホイールで回転(1ノッチ=1刻み、端は一周してつながる)
+$('stage').addEventListener('wheel', e => {
+  e.preventDefault();
+  let d = rotDeg + (e.deltaY > 0 ? 1 : -1) * CFG.rotStep;
+  if (d > 180) d -= 360; if (d < -180) d += 360;
+  setRot(d);
+}, { passive: false });
+
+// 回転スライダー
+const rot = $('rot'); let rotDragging = false;
+function rotFromPointer(e) {
+  const r = rot.getBoundingClientRect();
+  const f = Math.max(0, Math.min(1, (e.clientY - r.top) / r.height));
+  setRot(Math.round((f * 360 - 180) / CFG.rotStep) * CFG.rotStep);
+}
+rot.addEventListener('pointerdown', e => { rotDragging = true; rot.setPointerCapture(e.pointerId); rotFromPointer(e); });
+rot.addEventListener('pointermove', e => { if (rotDragging) rotFromPointer(e); });
+['pointerup', 'pointercancel'].forEach(ev => rot.addEventListener(ev, () => { rotDragging = false; }));
+
+$('bDrop').addEventListener('pointerdown', e => { e.preventDefault(); dropHeld(); });
+window.addEventListener('keydown', e => {
+  if (e.key === 'ArrowLeft') moveHeld(-12);
+  else if (e.key === 'ArrowRight') moveHeld(12);
+  else if (e.key === 'ArrowUp' || e.key === 'r') rotateHeld();
+  else if (e.key === ' ' || e.key === 'ArrowDown') { e.preventDefault(); dropHeld(); }
+});
+
+$('retry').addEventListener('click', reset);
+$('share').addEventListener('click', () => {
+  const text = `ブロック自由落下で ${score}m 積んだ！ 物理がつらい… #ブロック自由落下`;
+  if (navigator.share) navigator.share({ text, url: location.href }).catch(() => {});
+  else window.open('https://twitter.com/intent/tweet?text=' + encodeURIComponent(text) + '&url=' + encodeURIComponent(location.href));
+});
+
+resize();
+reset();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
