@@ -61,6 +61,7 @@
       <button id="revive">▶ 広告を見て、直前に戻る(1回だけ)</button>
       <button id="retry">もう一回</button>
       <button id="share" class="sub">シェアする</button>
+      <button id="tagsearch" class="sub">みんなの記録を見る</button>
     </div>
   </div>
   <div id="controls">
@@ -493,9 +494,14 @@ window.addEventListener('keydown', e => {
 $('retry').addEventListener('click', reset);
 $('revive').addEventListener('click', () => showRewardedAd(restoreSnapshot));
 $('share').addEventListener('click', () => {
-  const text = `ブロック自由落下で ${score}m 積んだ！ 物理がつらい… #ブロック自由落下`;
+  const text = `【ブロック自由落下】 ${score}m 積んだ！ 物理がつらい… #ブロック自由落下`;
   if (navigator.share) navigator.share({ text, url: location.href }).catch(() => {});
   else window.open('https://twitter.com/intent/tweet?text=' + encodeURIComponent(text) + '&url=' + encodeURIComponent(location.href));
+});
+
+// ハッシュタグ検索で、みんなのシェアを見られる(サーバー不要)
+$('tagsearch').addEventListener('click', () => {
+  window.open('https://x.com/search?q=' + encodeURIComponent('#ブロック自由落下') + '&src=typed_query&f=top');
 });
 
 resize();
