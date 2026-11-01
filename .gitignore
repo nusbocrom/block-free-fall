@@ -1,0 +1,29 @@
+# ---------- Unity(unity/ の下だけに限定。Web版には影響しない) ----------
+unity/[Ll]ibrary/
+unity/[Tt]emp/
+unity/[Oo]bj/
+unity/[Bb]uild/
+unity/[Bb]uilds/
+unity/[Ll]ogs/
+unity/[Uu]ser[Ss]ettings/
+unity/.vs/
+unity/.vscode/
+unity/*.csproj
+unity/*.sln
+unity/*.slnx
+unity/*.user
+unity/*.apk
+unity/*.aab
+unity/*.unitypackage
+
+# ---------- 秘密情報(絶対にコミットしない) ----------
+*.keystore
+*.jks
+*.p12
+*.pem
+.env
+.env.*
+
+# ---------- OS ----------
+.DS_Store
+Thumbs.db
