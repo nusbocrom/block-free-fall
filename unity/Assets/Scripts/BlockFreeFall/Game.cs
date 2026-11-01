@@ -43,7 +43,7 @@ namespace BlockFreeFall
             public readonly List<PieceState> items = new();
             public Piece dropped;
             public float x;
-            public int rotDeg, lives;
+            public int rotDeg, lives, dropCount;
             public bool bossPending;
             public float nextBoss;
         }
@@ -70,6 +70,7 @@ namespace BlockFreeFall
         State state;
         GameObject guideL, guideR, beam;
         Snapshot snap;
+        int dropCount;
         Texture2D thumb;                 // 結果画面に出す、最高到達時の塔の小さな画像
         bool usedRevive;
 
@@ -175,6 +176,8 @@ namespace BlockFreeFall
             if (held != null) Destroy(held.gameObject);
             held = current = null;
             snap = null; usedRevive = false;
+            dropCount = 0;
+            AdDemo.Clear();
 
             lives = Cfg.Lives; score = peakScore = 0f; count = peakCount = 0;
             bossPending = false; nextBoss = Cfg.BossHeight; spawnDelay = 0f;
@@ -323,6 +326,13 @@ namespace BlockFreeFall
             p.SetAlpha(0.85f);
             p.transform.position = new Vector3(0f, SpawnY(), 0f);
             SetRot(0, true);
+            AttachAdIfDue(p);
+        }
+
+        /// <summary>次に落とすのが AdEvery 個目なら、落とす前のピースに広告を付ける。</summary>
+        void AttachAdIfDue(Piece p)
+        {
+            if ((dropCount + 1) % Cfg.AdEvery == 0) AdDemo.Spawn(p);
         }
 
         void Drop()
@@ -341,6 +351,7 @@ namespace BlockFreeFall
             p.Rb.angularVelocity = 0f;
             pieces.Add(p);
             current = p; held = null;
+            dropCount++;
             settleTimer = 0f; droppedAt = Time.time;
         }
 
@@ -356,7 +367,6 @@ namespace BlockFreeFall
         void GameOver()
         {
             state = State.Over;
-            Sfx.Over();
             if (peakScore > best) { best = peakScore; PlayerPrefs.SetFloat("bff-best", best); PlayerPrefs.Save(); }
             StartCoroutine(ShowOverLater());
         }
@@ -364,9 +374,11 @@ namespace BlockFreeFall
         IEnumerator ShowOverLater()
         {
             yield return new WaitForSeconds(0.7f);
+            while (AdDemo.IsCrawling) yield return null;   // 未完成の広告の演出は、最後まで見せる
             // 崩れた塔は隠して、最高到達時の塔を作り直して、結果画面の背景にする
             foreach (var p in pieces) if (p != null) p.gameObject.SetActive(false);
             if (held != null) held.gameObject.SetActive(false);
+            AdDemo.Clear();
             BuildGhosts();
 
             // 最高到達時の塔が収まる大きさに、すぐ合わせて、画面の部品を隠して1枚撮る(結果画面の小さな画像)
@@ -378,6 +390,7 @@ namespace BlockFreeFall
             ClearGhosts();
             ui.SetCanvasVisible(true);
 
+            Sfx.Over();   // 結果画面と同時に鳴らす
             ui.ShowGameOver(peakScore, peakCount, best, EndMsg[Random.Range(0, EndMsg.Length)], !usedRevive && snap != null, thumb);
         }
 
@@ -433,7 +446,7 @@ namespace BlockFreeFall
         // ============ 直前に戻る(広告を見て、1回だけ) ============
         void TakeSnapshot()
         {
-            snap = new Snapshot { dropped = held, x = held.transform.position.x, rotDeg = rotDeg, lives = lives, bossPending = bossPending, nextBoss = nextBoss };
+            snap = new Snapshot { dropped = held, x = held.transform.position.x, rotDeg = rotDeg, lives = lives, dropCount = dropCount, bossPending = bossPending, nextBoss = nextBoss };
             foreach (var p in pieces)
                 snap.items.Add(new PieceState { piece = p, pos = p.transform.position, rot = p.Rb.rotation, vel = p.Rb.linearVelocity, angVel = p.Rb.angularVelocity });
         }
@@ -448,6 +461,7 @@ namespace BlockFreeFall
         {
             if (snap == null) return;
             ClearGhosts();
+            AdDemo.Clear();
             var keep = new HashSet<Piece> { snap.dropped };
             foreach (var it in snap.items) keep.Add(it.piece);
 
@@ -478,6 +492,8 @@ namespace BlockFreeFall
             current = null; spawnDelay = 0f; settleTimer = 0f;
             SetHeldX(snap.x);
             SetRot(snap.rotDeg, true);
+            dropCount = snap.dropCount;
+            AttachAdIfDue(d);
 
             lives = Mathf.Min(Cfg.Lives, snap.lives + 1);
             bossPending = snap.bossPending; nextBoss = snap.nextBoss;

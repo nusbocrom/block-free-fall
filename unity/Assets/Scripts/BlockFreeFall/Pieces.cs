@@ -225,6 +225,12 @@ namespace BlockFreeFall
             var fsr = f.AddComponent<SpriteRenderer>();
             fsr.sprite = fill; fsr.color = color; fsr.sortingOrder = 2;
 
+            var m = new GameObject("m");
+            m.transform.SetParent(g.transform, false);
+            m.transform.localScale = new Vector3(fillScale.x, fillScale.y, 1f);
+            m.AddComponent<SpriteMask>().sprite = fill;                     // 隠し絵の広告は、この形の部分だけ見える
+
+
             if (!Shapes.Glossy) return;
             var l = new GameObject("l");
             l.transform.SetParent(g.transform, false);
