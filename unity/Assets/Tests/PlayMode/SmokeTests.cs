@@ -63,5 +63,41 @@ namespace BlockFreeFall.Tests
                 Object.Destroy(p.gameObject);
             }
         }
+
+        [UnityTest]
+        public IEnumerator 直前に戻れる()
+        {
+            var errors = new List<string>();
+            Application.LogCallback cb = (msg, stack, type) =>
+            {
+                if (type == LogType.Exception || type == LogType.Error) errors.Add(type + ": " + msg + "\n" + stack);
+            };
+            Application.logMessageReceived += cb;
+
+            yield return null;
+            yield return null;
+            var game = Object.FindFirstObjectByType<Game>();
+            var t = typeof(Game);
+            var drop = t.GetMethod("Drop", Any);
+            var held = t.GetField("held", Any);
+            for (int i = 0; i < 4; i++)
+            {
+                float w = 0f;
+                while (held.GetValue(game) == null && w < 10f) { w += Time.deltaTime; yield return null; }
+                drop.Invoke(game, null);
+                yield return new WaitForSeconds(1.2f);
+            }
+
+            // 強制的にゲームオーバーにして、結果画面を出し、直前に戻る
+            t.GetMethod("GameOver", Any).Invoke(game, null);
+            yield return new WaitForSeconds(1.2f);
+            t.GetMethod("RestoreSnapshot", Any).Invoke(game, null);
+            yield return null;
+
+            Application.logMessageReceived -= cb;
+            Assert.IsNotNull(held.GetValue(game), "戻ったあと、持っているピースがない");
+            Assert.AreEqual("Play", t.GetField("state", Any).GetValue(game).ToString());
+            Assert.IsEmpty(errors, string.Join("\n", errors));
+        }
     }
 }

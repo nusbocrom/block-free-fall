@@ -9,6 +9,19 @@ namespace BlockFreeFall
         public Rigidbody2D Rb;
         public Collider2D[] Cols;
         public bool IsBoss;
+        public char Kind;                 // 通常のピースの種類(I,O,T,S,Z,J,L)
+        public int BossIndex = -1;        // 変な物体の種類(0〜3)。通常のピースは-1
+        float lastDust;
+
+        // 強くぶつかったら、砂ぼこりを舞わせる
+        void OnCollisionEnter2D(Collision2D c)
+        {
+            float v = c.relativeVelocity.magnitude;
+            Sfx.Hit(v);
+            if (Time.time - lastDust < 0.08f || v < 3.5f) return;
+            lastDust = Time.time;
+            Dust.Burst(c.GetContact(0).point, v);
+        }
 
         public Bounds GetBounds()
         {
@@ -29,8 +42,49 @@ namespace BlockFreeFall
             }
         }
 
+        /// <summary>全体の濃さ(1=ふつう)。持っている間は、少し透けさせる(Webと同じ0.85)。</summary>
+        public void SetAlpha(float a)
+        {
+            foreach (var sr in GetComponentsInChildren<SpriteRenderer>())
+            {
+                var c = sr.color; c.a = a; sr.color = c;
+            }
+        }
+
         public bool Settled() =>
             Rb.linearVelocity.magnitude < Cfg.SettleSpeed && Mathf.Abs(Rb.angularVelocity) < Cfg.SettleAngularSpeed;
+    }
+
+    /// <summary>ブロックの縁の色。テーマ(ライト/ダーク)が変わったら、塗り直す。</summary>
+    public class EdgeTint : MonoBehaviour
+    {
+        public Color Base = Color.gray;
+        SpriteRenderer sr;
+
+        void OnEnable() { Theme.Changed += Apply; Apply(); }
+        void OnDisable() { Theme.Changed -= Apply; }
+
+        public void Apply()
+        {
+            if (sr == null) sr = GetComponent<SpriteRenderer>();
+            if (sr != null) { var c = Theme.PieceEdge(Base); c.a = sr.color.a; sr.color = c; }
+        }
+    }
+
+    /// <summary>お椀の色。テーマが変わったら、塗り直す。</summary>
+    public class BowlTheme : MonoBehaviour
+    {
+        public SpriteRenderer Fill, Outline, Abyss;
+
+        void OnEnable() { Theme.Changed += Apply; Apply(); }
+        void OnDisable() { Theme.Changed -= Apply; }
+
+        public void Apply()
+        {
+            if (Fill != null) Fill.color = Theme.Bowl;
+            if (Outline != null) Outline.color = Theme.Line;
+            if (Abyss != null) Abyss.color = Theme.Abyss;
+        }
     }
 
     /// <summary>ピースの各部分の密度を覚えておくための印。</summary>
@@ -82,6 +136,7 @@ namespace BlockFreeFall
             cx /= n; cy /= n;
 
             var p = Begin("Piece_" + kind, false);
+            p.Kind = kind;
             for (int i = 0; i < n; i++)
                 AddBox(p.transform, new Vector2(cells[2 * i] - cx, -(cells[2 * i + 1] - cy)), Vector2.one, 0f, Colors[kind], 1f);
             return Finish(p);
@@ -93,6 +148,7 @@ namespace BlockFreeFall
             var color = Theme.Boss;
             float heavy = Cfg.BossWeight;
             var p = Begin("Boss_" + index, true);
+            p.BossIndex = index;
             switch (index)
             {
                 case 0: // 片側だけ重いダンベル
@@ -136,7 +192,7 @@ namespace BlockFreeFall
 
         // 縁取りの太さ(ユニット)。暗い下地を少し大きく、色の面を少し小さくして、その差で縁を作る。
         // こうすると、外側もつなぎ目も同じ太さになる(1マスごとに縁を描くと、つなぎ目だけ倍の太さになる)
-        const float Edge = 0.07f;
+        const float Edge = 0.05f;
 
         /// <summary>当たり判定を持つ入れ物。大きさを変えないよう、絵は子として別に作る。</summary>
         static GameObject Holder(Transform parent, Vector2 pos, float angleDeg)
@@ -148,25 +204,39 @@ namespace BlockFreeFall
             return g;
         }
 
-        static void Visual(GameObject g, Sprite s, Vector2 fillScale, Vector2 underScale, Color color)
+        static void Visual(GameObject g, char kind, float sa, float sb, Vector2 fillScale, Vector2 underScale, Color color)
         {
+            var fill = Shapes.Glass(kind, sa, sb, false);
+            var gloss = Shapes.Glossy ? Shapes.Glass(kind, sa, sb, true) : null;
+
+            // 縁: ブロックの色を濃くした色の下地。黒より、ガラスの縁らしくなる
             var o = new GameObject("o");
             o.transform.SetParent(g.transform, false);
             o.transform.localScale = new Vector3(underScale.x, underScale.y, 1f);
             var osr = o.AddComponent<SpriteRenderer>();
-            osr.sprite = s; osr.color = Theme.Line; osr.sortingOrder = 1;   // 下地は、お椀より手前
+            osr.sprite = fill; osr.sortingOrder = 1;
+            var edge = o.AddComponent<EdgeTint>();
+            edge.Base = color;
+            edge.Apply();
 
             var f = new GameObject("f");
             f.transform.SetParent(g.transform, false);
             f.transform.localScale = new Vector3(fillScale.x, fillScale.y, 1f);
             var fsr = f.AddComponent<SpriteRenderer>();
-            fsr.sprite = s; fsr.color = color; fsr.sortingOrder = 2;        // 色の面は、全部の下地より手前
+            fsr.sprite = fill; fsr.color = color; fsr.sortingOrder = 2;
+
+            if (!Shapes.Glossy) return;
+            var l = new GameObject("l");
+            l.transform.SetParent(g.transform, false);
+            l.transform.localScale = new Vector3(fillScale.x, fillScale.y, 1f);
+            var lsr = l.AddComponent<SpriteRenderer>();
+            lsr.sprite = gloss; lsr.sortingOrder = 3;                       // つやは、全部の色の面より手前
         }
 
         static void AddBox(Transform parent, Vector2 pos, Vector2 size, float angleDeg, Color color, float density)
         {
             var g = Holder(parent, pos, angleDeg);
-            Visual(g, Shapes.Box(size.x, size.y, false),
+            Visual(g, 'b', size.x, size.y,
                 new Vector2((size.x - Edge) / size.x, (size.y - Edge) / size.y),
                 new Vector2((size.x + Edge) / size.x, (size.y + Edge) / size.y), color);
             var c = g.AddComponent<BoxCollider2D>();
@@ -178,7 +248,7 @@ namespace BlockFreeFall
         {
             var g = Holder(parent, pos, 0f);
             float f = (r - Edge / 2f) / r, u = (r + Edge / 2f) / r;
-            Visual(g, Shapes.Circle(r, false), new Vector2(f, f), new Vector2(u, u), color);
+            Visual(g, 'c', r, 0f, new Vector2(f, f), new Vector2(u, u), color);
             var c = g.AddComponent<CircleCollider2D>();
             c.radius = r; c.sharedMaterial = Mat;
             g.AddComponent<DensityTag>().Value = density;
@@ -188,7 +258,7 @@ namespace BlockFreeFall
         {
             var g = Holder(parent, Vector2.zero, 0f);
             float f = 1f - Edge / r, u = 1f + Edge / r;
-            Visual(g, Shapes.Triangle(r, false), new Vector2(f, f), new Vector2(u, u), color);
+            Visual(g, 't', r, 0f, new Vector2(f, f), new Vector2(u, u), color);
             var c = g.AddComponent<PolygonCollider2D>();
             c.points = new[]
             {
@@ -203,6 +273,8 @@ namespace BlockFreeFall
 
     public static class Bowl
     {
+        const float OutlineWidth = 0.06f;   // 縁取りの太さ(ユニット)
+
         /// <summary>
         /// なだらかなお椀。中央が y=0 で最も低く、縁が BowlRise だけ高い放物線。
         /// 見た目は、y=0 の線とのあいだを塗った楔形(Web版と同じ)。当たり判定は、短い厚い板の連続。
@@ -211,12 +283,6 @@ namespace BlockFreeFall
         {
             var root = new GameObject("Bowl");
             int n = Cfg.BowlSegments;
-            var pts = new Vector2[n + 1];
-            for (int i = 0; i <= n; i++)
-            {
-                float u = -1f + 2f * i / n;
-                pts[i] = new Vector2(u * Cfg.BowlHalfWidth, Cfg.BowlRise * u * u);
-            }
 
             // お椀の下は、暗い帯(奈落)にする
             var abyss = new GameObject("abyss");
@@ -224,24 +290,30 @@ namespace BlockFreeFall
             abyss.transform.position = new Vector3(0f, -1f - 50f, 0f);
             abyss.transform.localScale = new Vector3(200f, 100f, 1f);
             var asr = abyss.AddComponent<SpriteRenderer>();
-            asr.sprite = Shapes.Box(1f, 1f, false); asr.color = Theme.Abyss; asr.sortingOrder = -5;
+            asr.sprite = Shapes.Box(1f, 1f, false); asr.sortingOrder = -5;
 
-            // 見た目(縁取りは、少し大きい暗い楔を後ろに重ねる)
-            var mat = DefaultSpriteMaterial();
-            const int visualSegments = 64;
-            var vpts = new Vector2[visualSegments + 1];
-            for (int i = 0; i <= visualSegments; i++)
-            {
-                float u = -1f + 2f * i / visualSegments;
-                vpts[i] = new Vector2(u * Cfg.BowlHalfWidth, Cfg.BowlRise * u * u);
-            }
-            AddMesh(root.transform, vpts, 0.09f, Theme.Line, -1, mat);
-            AddMesh(root.transform, vpts, 0f, Theme.Bowl, 0, mat);
+            // 見た目: 縁取り(少し大きい楔)を後ろに、色の面を手前に。どちらも、縁がやわらかく透ける絵
+            var outline = new GameObject("bowl_outline").AddComponent<SpriteRenderer>();
+            outline.transform.SetParent(root.transform, false);
+            outline.sprite = Shapes.BowlWedge(Cfg.BowlHalfWidth, Cfg.BowlRise, OutlineWidth);
+            outline.sortingOrder = -1;
+            var fill = new GameObject("bowl_fill").AddComponent<SpriteRenderer>();
+            fill.transform.SetParent(root.transform, false);
+            fill.sprite = Shapes.BowlWedge(Cfg.BowlHalfWidth, Cfg.BowlRise, 0f);
+            fill.sortingOrder = 0;
+            var bt = root.AddComponent<BowlTheme>();
+            bt.Fill = fill; bt.Outline = outline; bt.Abyss = asr;
+            bt.Apply();   // 参照を渡した後に塗る(OnEnableの時点では、まだ空)
 
             // 当たり判定(見えない)
+            Vector2 Pt(int i)
+            {
+                float u = -1f + 2f * i / n;
+                return new Vector2(u * Cfg.BowlHalfWidth, Cfg.BowlRise * u * u);
+            }
             for (int i = 0; i < n; i++)
             {
-                Vector2 a = pts[i], b = pts[i + 1];
+                Vector2 a = Pt(i), b = Pt(i + 1);
                 Vector2 d = (b - a).normalized;
                 Vector2 down = new Vector2(d.y, -d.x);   // 表面の下向きの法線
                 Vector2 center = (a + b) / 2f + down * (Cfg.BowlThickness / 2f);
@@ -256,43 +328,6 @@ namespace BlockFreeFall
                 col.sharedMaterial = PieceFactory.Mat;
             }
             return root;
-        }
-
-        static Material DefaultSpriteMaterial()
-        {
-            var tmp = new GameObject("tmp").AddComponent<SpriteRenderer>();
-            var m = tmp.sharedMaterial;
-            Object.Destroy(tmp.gameObject);
-            return m;
-        }
-
-        /// <summary>弧の上面と y=0 の線のあいだを、四角形の連なりで塗ったメッシュ。grow だけ外へ広げる。</summary>
-        static void AddMesh(Transform parent, Vector2[] pts, float grow, Color color, int order, Material mat)
-        {
-            int n = pts.Length - 1;
-            var v = new Vector3[n * 4];
-            var c = new Color[n * 4];
-            var t = new int[n * 6];
-            for (int i = 0; i < n; i++)
-            {
-                float xl = pts[i].x - (i == 0 ? grow : 0f), xr = pts[i + 1].x + (i == n - 1 ? grow : 0f);
-                v[i * 4 + 0] = new Vector3(xl, pts[i].y + grow, 0f);
-                v[i * 4 + 1] = new Vector3(xr, pts[i + 1].y + grow, 0f);
-                v[i * 4 + 2] = new Vector3(xr, -grow, 0f);
-                v[i * 4 + 3] = new Vector3(xl, -grow, 0f);
-                for (int k = 0; k < 4; k++) c[i * 4 + k] = color;
-                int o = i * 4, q = i * 6;
-                t[q] = o; t[q + 1] = o + 1; t[q + 2] = o + 2;
-                t[q + 3] = o; t[q + 4] = o + 2; t[q + 5] = o + 3;
-            }
-            var mesh = new Mesh { vertices = v, colors = c, triangles = t };
-            mesh.RecalculateBounds();
-            var g = new GameObject(grow > 0f ? "bowl_outline" : "bowl_fill");
-            g.transform.SetParent(parent, false);
-            g.AddComponent<MeshFilter>().sharedMesh = mesh;
-            var mr = g.AddComponent<MeshRenderer>();
-            mr.sharedMaterial = mat;
-            mr.sortingOrder = order;
         }
     }
 }
