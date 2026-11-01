@@ -40,10 +40,15 @@
   #over button#revive { background: #fc0; color: #222; font-weight: bold; box-shadow: 0 3px 0 #a80; }
   #over button.sub { background: var(--btn); color: var(--btnText); box-shadow: 0 2px 0 var(--btnShadow); }
   #adslot { min-height: 0; }
-  #adDummy { position: absolute; inset: 0; z-index: 10; display: none; flex-direction: column; align-items: center;
-    justify-content: center; gap: 8px; background: rgba(0,0,0,.82); color: #fff; font-weight: bold; text-align: center; }
-  #adDummy .n { font-size: 56px; }
-  #adDummy small { font-weight: normal; opacity: .7; }
+  #adWin { position: absolute; inset: 0; z-index: 10; display: none; align-items: center; justify-content: center;
+    background: rgba(0,0,0,.75); padding: 20px; }
+  #adWin .box { width: 100%; max-width: 360px; background: var(--over); color: var(--text); border-radius: 14px;
+    padding: 12px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 8px 30px rgba(0,0,0,.4); }
+  #adWin .cap { font-size: 12px; opacity: .7; font-weight: bold; }
+  #adArea { aspect-ratio: 16 / 9; border-radius: 8px; background: var(--subtle); display: flex; align-items: center;
+    justify-content: center; font-size: 13px; opacity: .9; overflow: hidden; }
+  #adBack { font-size: 18px; padding: 12px; border: 0; border-radius: 10px; background: var(--strong); color: var(--strongText); font-weight: bold; }
+  #adBack:disabled { opacity: .45; }
   #overBg { position: absolute; inset: 0; width: 100%; height: 100%; opacity: .4; pointer-events: none; }
   #over > *:not(canvas) { position: relative; }
   #rot { position: absolute; right: 6px; top: 14%; bottom: 6%; width: 56px; touch-action: none; }
@@ -102,7 +107,7 @@
     <div id="msg"></div>
     <div id="warn"><span>⚠ 注意 ⚠ 何かが来る</span></div>
     <div id="rot"><div id="rotTrack"></div><div id="rotMark"></div><div id="rotThumb">0°</div></div>
-    <div id="adDummy"><div>広告(ダミー)</div><div class="n" id="adN">3</div><small>終わると、直前に戻ります</small></div>
+    <div id="adWin"><div class="box"><div class="cap">広告</div><div id="adArea">(ここに広告が入ります・ダミー)</div><button id="adBack" disabled>あと5秒</button></div></div>
     <div id="howto">
       <div class="h" id="hMove">👆 <b>画面を押している間</b>、<br>ピースが指についてくる</div>
       <div class="h" id="hSlider">この<b>スライダー</b>で回転 ➡<br>(上下に動かす)</div>
@@ -146,6 +151,7 @@ const CFG = {
   bossHeight: 5,         // この高さ(m)に達すると「終わらせにかかる」物体が来る
   bossWeight: 1.5,       // 変な物体の重い部分の密度倍率(大きいほど塔を壊す)
   bossInterval: 4,       // 以降は、この高さ(m)ごとに来る
+  adWaitSec: 5,          // 広告ウィンドウで「戻る」が押せるようになるまでの秒数
   interstitialEvery: 10,  // ゲーム間の広告を挟む頻度(何回に1回)
   warnFrames: 110,       // 注意の帯を出してから物体が出るまでのフレーム数
   lives: 3,              // 落としていい回数
@@ -367,8 +373,8 @@ function restoreSnapshot() {
 //   CrazyGames : CrazyGames.SDK.game.gameplayStart() / .ad.requestAd('midgame' | 'rewarded', {adFinished, adError})
 const dummyProvider = {
   gameplayStart() {}, gameplayStop() {},
-  interstitial(done) { done(); },                 // ダミーは何も出さない
-  rewarded(onReward) { showRewardedAd(onReward); }
+  interstitial(done) { openAdWindow(done, 'ゲームに戻る'); },
+  rewarded(onReward) { openAdWindow(onReward, '戻る(直前に復活)'); }
 };
 const Ads = {
   provider: dummyProvider,
@@ -390,15 +396,16 @@ const Ads = {
   }
 };
 
-// いまはダミー: 3秒のカウントダウンで広告を見たことにする
-function showRewardedAd(onReward) {
-  // いまはダミー: 3秒のカウントダウンのあとに戻る。確認ダイアログは出さない
-  const box = $('adDummy'), n = $('adN'); let left = 3;
-  n.textContent = left; box.style.display = 'flex';
+// 広告ウィンドウ: 枠の中(#adArea)に広告を出し、数秒たつと「戻る」ボタンが押せるようになる。
+// 広告SDKが表示先の要素を求めるときは #adArea を渡す。いまは中身がダミー。
+function openAdWindow(onDone, doneLabel) {
+  const w = $('adWin'), b = $('adBack'); let left = CFG.adWaitSec;
+  w.style.display = 'flex'; b.disabled = true; b.textContent = 'あと' + left + '秒';
   const t = setInterval(() => {
-    if (--left > 0) { n.textContent = left; return; }
-    clearInterval(t); box.style.display = 'none'; onReward();
+    if (--left > 0) { b.textContent = 'あと' + left + '秒'; return; }
+    clearInterval(t); b.disabled = false; b.textContent = doneLabel;
   }, 1000);
+  b.onclick = () => { if (b.disabled) return; w.style.display = 'none'; onDone(); };
 }
 
 function dropHeld() {
