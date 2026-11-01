@@ -24,7 +24,7 @@
     background: repeating-linear-gradient(-45deg, #fc0 0 22px, #222 22px 44px); animation: blink .35s steps(2) infinite; }
   #warn span { background: #222; color: #fc0; font-size: 26px; font-weight: bold; padding: 6px 18px; letter-spacing: 2px; }
   @keyframes blink { 50% { opacity: .35; } }
-  #hand, #theme, #help { pointer-events: auto; font-size: 12px; padding: 4px 8px; border: 0; border-radius: 8px; background: var(--subtle); color: var(--text); }
+  #hand, #theme, #help, #mute { pointer-events: auto; font-size: 12px; padding: 4px 8px; border: 0; border-radius: 8px; background: var(--subtle); color: var(--text); }
   #stage.lefty #rot { right: auto; left: 6px; }
   #msg { position: absolute; top: 40%; left: 0; right: 0; text-align: center; font-size: 28px; font-weight: bold;
     color: #d33; pointer-events: none; opacity: 0; transition: opacity .3s; }
@@ -98,7 +98,7 @@
 <div id="app">
   <div id="stage">
     <canvas id="c"></canvas>
-    <div id="hud"><span id="hScore">高さ 0m</span><span id="btns"><button id="hand">スライダー: 右</button><button id="theme">🌙</button><button id="help">？</button></span><span id="hLife"></span></div>
+    <div id="hud"><span id="hScore">高さ 0m</span><span id="btns"><button id="hand">回転:右</button><button id="mute">🔊</button><button id="theme">🌙</button><button id="help">？</button></span><span id="hLife"></span></div>
     <div id="msg"></div>
     <div id="warn"><span>⚠ 注意 ⚠ 何かが来る</span></div>
     <div id="rot"><div id="rotTrack"></div><div id="rotMark"></div><div id="rotThumb">0°</div></div>
@@ -221,6 +221,7 @@ function makePiece(key) {
 function reset() {
   engine = Engine.create();
   engine.gravity.y = CFG.gravity;
+  Events.on(engine, 'collisionStart', e => Sound.collide(e.pairs));
   engine.positionIterations = 8;
   buildBowl();
   bossPending = false; nextBoss = CFG.bossHeight; spawnDelay = 0;
@@ -299,6 +300,7 @@ if (IS_LOCAL && /[?&]debug/.test(location.search)) {
 }
 
 function showWarning() {
+  Sound.warning();
   $('warn').style.display = 'flex';
   setTimeout(() => { $('warn').style.display = 'none'; }, CFG.warnFrames * 1000 / 60);
 }
@@ -307,6 +309,7 @@ function spawn() {
   if (bossPending) {
     held = makeBoss(); bossPending = false; nextBoss = score + CFG.bossInterval;
     flash('なんか来た');
+    Sound.boss();
   } else {
     held = makePiece(KEYS[Math.floor(Math.random() * KEYS.length)]);
   }
@@ -350,6 +353,7 @@ function restoreSnapshot() {
   usedRevive = true; state = 'play';
   $('over').style.display = 'none';
   updateHud(); flash('もう一回！');
+  Sound.revive();
   Ads.gameplayStart();
 }
 
@@ -375,10 +379,14 @@ const Ads = {
   beforeRetry(next) {
     this.games++;
     if (this.games % CFG.interstitialEvery !== 0) return next();
-    try { this.provider.interstitial(next); } catch (e) { next(); }
+    Sound.adPlaying(true);
+    const n = () => { Sound.adPlaying(false); next(); };
+    try { this.provider.interstitial(n); } catch (e) { n(); }
   },
   rewarded(onReward, onNoAd) {
-    try { this.provider.rewarded(onReward, onNoAd); } catch (e) { onNoAd && onNoAd(); }
+    Sound.adPlaying(true);
+    const done = f => (...a) => { Sound.adPlaying(false); f && f(...a); };
+    try { this.provider.rewarded(done(onReward), done(onNoAd)); } catch (e) { done(onNoAd)(); }
   }
 };
 
@@ -396,6 +404,7 @@ function showRewardedAd(onReward) {
 function dropHeld() {
   if (state !== 'play' || !held) return;
   takeSnapshot();
+  Sound.drop();
   Body.setStatic(held, false);
   Body.setVelocity(held, { x: 0, y: 1 });
   pieces.push(held);
@@ -509,6 +518,7 @@ function updateHud() {
 
 function miss() {
   lives--;
+  Sound.miss();
   flash(MISS_MSG[Math.floor(Math.random() * MISS_MSG.length)]);
   updateHud();
   if (lives <= 0) gameOver();
@@ -525,6 +535,7 @@ function drawOverBg() {
 function gameOver() {
   state = 'over';
   Ads.gameplayStop();
+  Sound.over();
   if (peakScore > best) { best = peakScore; safeSet('bff-best', best); }
   $('oScore').textContent = peakScore + 'm';
   $('oCount').textContent = '乗せた個数(最多) ' + peakCount + '個';
@@ -565,6 +576,7 @@ function step() {
         if (settled(current)) settleCount++; else settleCount = 0;
         if (settleCount > CFG.settleFrames || performance.now() - droppedAt > CFG.maxWaitMs) {
           current = null;
+          Sound.stack(count);
           if (!bossPending && score >= nextBoss) { bossPending = true; showWarning(); spawnDelay = CFG.warnFrames; }
           else spawn();
         }
@@ -672,7 +684,7 @@ $('theme').addEventListener('click', () => applyTheme(!dark, true));
 // 利き手(スライダーの左右)
 function setHand(left) {
   $('stage').classList.toggle('lefty', left);
-  $('hand').textContent = 'スライダー: ' + (left ? '左' : '右');
+  $('hand').textContent = '回転:' + (left ? '左' : '右');
   safeSet('bff-hand', left ? 'L' : 'R');
 }
 $('hand').addEventListener('click', () => setHand(!$('stage').classList.contains('lefty')));
@@ -740,6 +752,102 @@ $('share').addEventListener('click', () => {
 $('tagsearch').addEventListener('click', () => {
   window.open('https://x.com/search?q=' + encodeURIComponent('#ブロック自由落下') + '&src=typed_query&f=top');
 });
+
+// ===== 音(Web Audio。ファイルなしで合成する) =====
+const Sound = {
+  ctx: null, master: null, noiseBuf: null, muted: safeGet('bff-mute') === '1', ad: false, lastHit: 0,
+  VOL: 0.6,
+  unlock() {                       // スマホは最初の操作のあとでないと音が出せない
+    if (!this.ctx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      this.ctx = new AC();
+      this.master = this.ctx.createGain(); this.master.connect(this.ctx.destination);
+      this.noiseBuf = this.ctx.createBuffer(1, this.ctx.sampleRate, this.ctx.sampleRate);
+      const d = this.noiseBuf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      this.applyGain();
+    }
+    if (this.ctx.state === 'suspended') this.ctx.resume();
+  },
+  applyGain() { if (this.master) this.master.gain.value = (this.muted || this.ad) ? 0 : this.VOL; },
+  setMuted(m) { this.muted = m; this.applyGain(); safeSet('bff-mute', m ? '1' : '0'); $('mute').textContent = m ? '🔇' : '🔊'; },
+  adPlaying(b) { this.ad = b; this.applyGain(); },       // 広告の再生中は鳴らさない
+  ok() { return this.ctx && this.ctx.state === 'running'; },
+
+  tone(f0, dur, o = {}) {
+    if (!this.ok()) return;
+    const c = this.ctx, t = c.currentTime + (o.delay || 0);
+    const osc = c.createOscillator(), g = c.createGain();
+    osc.type = o.type || 'sine';
+    osc.frequency.setValueAtTime(f0, t);
+    if (o.to) osc.frequency.exponentialRampToValueAtTime(o.to, t + dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(o.vol || 0.3, t + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.connect(g); g.connect(this.master);
+    osc.start(t); osc.stop(t + dur + 0.03);
+  },
+  noise(dur, vol, freq, delay = 0) {
+    if (!this.ok()) return;
+    const c = this.ctx, t = c.currentTime + delay;
+    const src = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
+    src.buffer = this.noiseBuf; f.type = 'bandpass'; f.frequency.value = freq;
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(f); f.connect(g); g.connect(this.master);
+    src.start(t); src.stop(t + dur + 0.03);
+  },
+
+  // ぶつかった強さで、音の大きさと低さが変わる
+  collide(pairs) {
+    if (!this.ok()) return;
+    const now = this.ctx.currentTime;
+    if (now - this.lastHit < 0.04) return;           // 連続しすぎると耳障りなので間引く
+    let vmax = 0;
+    for (const p of pairs) {
+      const a = p.collision ? p.collision.parentA : p.bodyA, b = p.collision ? p.collision.parentB : p.bodyB;
+      vmax = Math.max(vmax, Math.hypot(a.velocity.x - b.velocity.x, a.velocity.y - b.velocity.y));
+    }
+    if (vmax < 1.2) return;
+    this.lastHit = now;
+    const k = Math.min(1, vmax / 9);
+    this.tone(210 - k * 90 + Math.random() * 25, 0.09 + k * 0.08, { type: 'triangle', vol: 0.1 + k * 0.35, to: 70 });
+    this.noise(0.05 + k * 0.05, 0.04 + k * 0.2, 900);
+  },
+  drop() { this.tone(720, 0.13, { to: 240, vol: 0.14 }); this.noise(0.1, 0.06, 3000); },
+  // 積むたびに音が上がる(ペンタトニック)。崩れて個数が減ると、音も下がる
+  stack(n) {
+    const i = Math.min(14, Math.max(0, n - 1)), deg = [0, 2, 4, 7, 9];
+    const semi = deg[i % 5] + 12 * Math.floor(i / 5), f = 261.63 * Math.pow(2, semi / 12);
+    this.tone(f, 0.28, { vol: 0.2 });
+    this.tone(f * 2, 0.2, { type: 'triangle', vol: 0.07 });
+  },
+  miss() { this.tone(420, 0.45, { type: 'square', to: 90, vol: 0.1 }); this.tone(300, 0.4, { to: 60, vol: 0.2, delay: 0.05 }); },
+  warning() {                                       // 「ぎゅいーん ぎゅいーん」: 低い音から一気に上がる音を3回
+    if (!this.ok()) return;
+    const c = this.ctx, t0 = c.currentTime;
+    for (let i = 0; i < 3; i++) {
+      const t = t0 + i * 0.58;
+      for (const detune of [0, 14]) {                // 少しずらした2つを重ねて、ざらついた太い音にする
+        const osc = c.createOscillator(), g = c.createGain();
+        osc.type = 'sawtooth'; osc.detune.value = detune;
+        osc.frequency.setValueAtTime(220, t);
+        osc.frequency.exponentialRampToValueAtTime(1100, t + 0.45);
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.065, t + 0.05);
+        g.gain.setValueAtTime(0.065, t + 0.38);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.52);
+        osc.connect(g); g.connect(this.master); osc.start(t); osc.stop(t + 0.56);
+      }
+    }
+  },
+  boss() { this.tone(80, 0.7, { type: 'sawtooth', to: 38, vol: 0.35 }); this.noise(0.4, 0.2, 200); },
+  over() { this.noise(0.5, 0.25, 220); this.tone(220, 0.9, { type: 'sawtooth', to: 50, vol: 0.14 }); },
+  revive() { this.tone(200, 0.35, { type: 'triangle', to: 900, vol: 0.18 }); this.tone(1200, 0.3, { vol: 0.14, delay: 0.32 }); }
+};
+['pointerdown', 'pointerup', 'touchend', 'click', 'keydown'].forEach(ev => window.addEventListener(ev, () => Sound.unlock(), { passive: true }));
+$('mute').addEventListener('click', () => Sound.setMuted(!Sound.muted));
+$('mute').textContent = Sound.muted ? '🔇' : '🔊';
 
 resize();
 reset();
