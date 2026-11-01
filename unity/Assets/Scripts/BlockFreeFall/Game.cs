@@ -37,7 +37,7 @@ namespace BlockFreeFall
             public Piece piece; public Vector2 pos; public float rot; public Vector2 vel; public float angVel;
         }
 
-        /// <summary>落とす直前の全体の状態。広告を見て、ここへ戻る。</summary>
+        /// <summary>落とす直前の全体の状態。結果画面から、ここへ戻る。</summary>
         class Snapshot
         {
             public readonly List<PieceState> items = new();
@@ -55,8 +55,8 @@ namespace BlockFreeFall
         }
 
         const string SiteUrl = "https://nusbocrom.github.io/block-free-fall/";
-        static readonly string[] MissMsg = { "あっ", "ツルッ", "さようなら", "重力は正義", "そこから？", "滑った！", "ありがとう物理" };
-        static readonly string[] EndMsg = { "摩擦は友達ではなかった", "積んだ気になってた？", "物理が本気を出した", "もう少しで…ではなかった", "高さ？ そんなものは幻想" };
+        static readonly string[] MissMsg = { "あっ", "ツルッ", "さようなら", "ひどくない？", "そこから？", "滑った！", "止まって！", "あれ？", "落ちた…", "あーあ", "惜しい！", "残念！", "うわぁ…", "あちゃー", "やっちゃった" };
+        static readonly string[] EndMsg = { "ブロックに裏切られた", "積んだ気になってた？", "重力が本気を出した", "もう少しで…ではなかった", "高さ？ そんなものは幻想", "塔は崩れ、夢も崩れた", "落ちるのはブロックだけじゃない", "塔の上から見える景色は、地面だけ", "塔の頂上で、あなたは孤独になる", "塔の頂上で、あなたは無力になる", "塔の頂上で、あなたは絶望する" };
         const int None = -99;
 
         Camera cam, bgCam;
@@ -119,10 +119,6 @@ namespace BlockFreeFall
             ui.OnShare = Share;
             ui.OnSearch = () => Application.OpenURL("https://x.com/search?q=" + Uri.EscapeDataString("#ブロック自由落下") + "&src=typed_query&f=top");
             if (Object.FindFirstObjectByType<AudioListener>() == null) cam.gameObject.AddComponent<AudioListener>();
-
-            // 広告: いまはダミーの広告ウィンドウ。本番では、広告SDKに差し替える
-            Ads.RewardedProvider = (ok, no) => ui.OpenAdWindow("戻る(直前に復活)", ok);
-            Ads.InterstitialProvider = done => ui.OpenAdWindow("ゲームに戻る", done);
 
             Theme.Changed += ApplyTheme;
             ApplyTheme();
@@ -329,10 +325,11 @@ namespace BlockFreeFall
             AttachAdIfDue(p);
         }
 
-        /// <summary>次に落とすのが AdEvery 個目なら、落とす前のピースに広告を付ける。</summary>
+        /// <summary>次に落とすのが AdFirst 個目か、そこから AdEvery 個ごとなら、落とす前のピースに広告を付ける。</summary>
         void AttachAdIfDue(Piece p)
         {
-            if ((dropCount + 1) % Cfg.AdEvery == 0) AdDemo.Spawn(p);
+            int next = dropCount + 1;
+            if (next >= Cfg.AdFirst && (next - Cfg.AdFirst) % Cfg.AdEvery == 0) AdDemo.Spawn(p);
         }
 
         void Drop()
@@ -443,7 +440,7 @@ namespace BlockFreeFall
             ghosts.Clear();
         }
 
-        // ============ 直前に戻る(広告を見て、1回だけ) ============
+        // ============ 直前に戻る(誰でも1回だけ) ============
         void TakeSnapshot()
         {
             snap = new Snapshot { dropped = held, x = held.transform.position.x, rotDeg = rotDeg, lives = lives, dropCount = dropCount, bossPending = bossPending, nextBoss = nextBoss };
@@ -454,7 +451,7 @@ namespace BlockFreeFall
         void RequestRevive()
         {
             if (usedRevive || snap == null) return;
-            Ads.Rewarded(RestoreSnapshot, ui.ReviveNoAd);
+            RestoreSnapshot();
         }
 
         void RestoreSnapshot()

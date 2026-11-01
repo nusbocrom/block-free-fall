@@ -252,7 +252,7 @@ namespace BlockFreeFall
             overBest = Label(Rect("best", overPanel, new Vector2(0, 0.53f), new Vector2(1, 0.575f)), "", 43, TextAnchor.MiddleCenter, () => Theme.Text);
             overComment = Label(Rect("comment", overPanel, new Vector2(0.05f, 0.465f), new Vector2(0.95f, 0.53f)), "", 43, TextAnchor.MiddleCenter, () => Theme.Text);
 
-            // 広告を見て、直前に戻る(黄色)
+            // 直前に戻る(黄色)
             var revive = RaisedButton(overPanel, "Revive", new Vector2(0.14f, 0.37f), new Vector2(0.86f, 0.435f), Raised,
                 () => Theme.Warn, () => Theme.Hex("aa8800"), 3.6f, "", 40, () => Theme.Hex("222222"), () => OnRevive?.Invoke());
             reviveText = revive.GetComponentInChildren<Text>();
@@ -343,7 +343,7 @@ namespace BlockFreeFall
             overCount.text = $"乗せた個数(最多) {peakCount}個";
             overBest.text = $"ベスト {best:0.0}m";
             overComment.text = comment;
-            reviveText.text = "広告を見て、直前に戻る(1回だけ)";
+            reviveText.text = "直前に戻る(1回だけ)";
             reviveText.transform.parent.gameObject.SetActive(canRevive);
             var reviveShadow = overPanel.Find("ReviveShadow");   // 黄色いボタンの、下の厚み
             if (reviveShadow != null) reviveShadow.gameObject.SetActive(canRevive);
@@ -386,18 +386,6 @@ namespace BlockFreeFall
             toast.text = text;
             toast.color = Theme.Text;
             toastT = 3.5f;
-        }
-
-        public void ReviveNoAd()
-        {
-            reviveText.text = "いま広告がありません";
-            StartCoroutine(ResetReviveLabel());
-        }
-
-        IEnumerator ResetReviveLabel()
-        {
-            yield return new WaitForSecondsRealtime(2f);
-            reviveText.text = "広告を見て、直前に戻る(1回だけ)";
         }
 
         public void ShowHowto(bool show)

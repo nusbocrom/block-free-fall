@@ -3,34 +3,28 @@ using UnityEngine;
 namespace BlockFreeFall
 {
     /// <summary>
-    /// 隠し絵の広告のデモ。ブロックと重なった部分だけ映像が見え、範囲が一定以上埋まると全体を数秒流す。
-    /// 映像は実際の広告ではなく、プログラムで作るダミー。
+    /// 隠し絵の広告。ブロックと重なった部分だけダミーの映像が見え、範囲が一定以上埋まるか、落ちて未完成に終わると、
+    /// Ad-Virtuaのモニターを全部見える形で15秒流す。隠れている間は、モニターを止めておく。
     /// </summary>
     public class AdDemo : MonoBehaviour
     {
-        const int TexW = 160, TexH = 90;
+        const int TexW = 240, TexH = 135;
+        const int TextRows = 3;             // ダミーの文字の段数
         const float Width = 5f, Height = Width * TexH / TexW;
         const int GridX = 16, GridY = 9;
         const bool FollowRotation = true;   // true: ブロックと一緒に回る / false: 位置だけ追従し、映像は常にまっすぐ
 
-        // 「DEMO AD」の文字(1文字5x7、上の行から)
-        static readonly string[] Letters =
-        {
-            "11110,10001,10001,10001,10001,10001,11110", // D
-            "11111,10000,10000,11110,10000,10000,11111", // E
-            "10001,11011,10101,10101,10001,10001,10001", // M
-            "01110,10001,10001,10001,10001,10001,01110", // O
-            null,                                        // 空白
-            "01110,10001,10001,11111,10001,10001,10001", // A
-            "11110,10001,10001,10001,10001,10001,11110", // D
-        };
+        const float ScrollPixelsPerSecond = 40f;   // ダミーの文字が横に流れる速さ
 
         static AdDemo currentAd;
+        static AdDemo crawlingAd;           // 這い上がって落ちる途中の広告。次の広告と同時に存在できる
+        static GameObject monitor;         // Ad-Virtuaのモニター。Unit IDごとに1つだけなので、使い回す
         static readonly Collider2D[] hits = new Collider2D[8];
 
         Texture2D tex;
         Color32[] px;
-        bool[] textMask;
+        Color32[] textPx;                   // 流す文字の画像(「完成するとここに広告が再生されるよ！」)
+        int textW, textH;
         SpriteRenderer video;
         Transform bar;
         Transform anchor;                   // 追従するブロック
@@ -39,30 +33,53 @@ namespace BlockFreeFall
         float frameT, checkT, showT;
         bool completed;
 
-        // 未完成のまま落ちたときの演出(完成した映像が下から這い上がり、むなしく落ちる)
-        const float ClimbSeconds = 1.6f, HangSeconds = 0.45f;
-        const int ClimbSteps = 5;           // 何回に分けて、よじ登るか
-        bool crawling;
-        float crawlT, crawlX, crawlStartY, crawlTopY, fallSpeed, fallRot;
+        // 未完成の演出で全体を見せるときの大きさ。画面の横幅に対する割合で決める(9:16の画面で、面積の約18%)
+        const float RevealWidthRatio = 0.75f;
+        const float MonitorBackZ = 1f, MonitorFrontZ = -1f;   // ブロックの奥 / 手前
+        const int MonitorBackOrder = -10, MonitorFrontOrder = 10;
+        float monitorZ;
 
-        /// <summary>ブロックの左下の角を起点に、広告の範囲を置く。以後、そのブロックに追従する。前の広告は消す。</summary>
+        // 未完成のまま落ちたときの演出(さっと上がり、よじ登り、力尽きて落ちる。合計15秒)
+        const float RiseSeconds = 0.6f, ClimbSeconds = 12.4f, HangSeconds = 0.5f, FallSeconds = 1.5f;
+        const int ClimbSteps = 12;          // 何回に分けて、よじ登るか
+        bool crawling;
+        float crawlT, crawlX;
+
+        /// <summary>ブロックの下辺の中央に合わせて、広告の範囲を置く。以後、そのブロックに追従する。前の広告が未完成なら、這い上がらせる。</summary>
         public static void Spawn(Piece piece)
         {
             var b = piece.GetBounds();
-            Clear();
+            if (currentAd != null)
+            {
+                if (currentAd.completed) currentAd.Finish();
+                else currentAd.StartCrawl();
+            }
             var go = new GameObject("AdDemo");
             currentAd = go.AddComponent<AdDemo>();
-            float x = Mathf.Clamp(b.min.x, -Cfg.BowlHalfWidth, Cfg.BowlHalfWidth - Width);
+            float x = Mathf.Clamp(b.center.x - Width / 2f, -Cfg.BowlHalfWidth, Cfg.BowlHalfWidth - Width);
             currentAd.Setup(piece.transform, new Vector2(x, b.min.y));
         }
 
         /// <summary>未完成の広告が、這い上がって落ちる演出の途中か。</summary>
-        public static bool IsCrawling => currentAd != null && currentAd.crawling;
+        public static bool IsCrawling => crawlingAd != null;
 
         public static void Clear()
         {
             if (currentAd != null) Destroy(currentAd.gameObject);
+            if (crawlingAd != null) Destroy(crawlingAd.gameObject);
             currentAd = null;
+            crawlingAd = null;
+            if (monitor != null) monitor.SetActive(false);
+        }
+
+        // この広告だけを終わらせる。ほかの広告がモニターを使っていれば、止めない
+        void Finish()
+        {
+            if (currentAd == this) currentAd = null;
+            if (crawlingAd == this) crawlingAd = null;
+            Destroy(gameObject);
+            bool inUse = crawlingAd != null || (currentAd != null && currentAd.completed);
+            if (monitor != null && !inUse) monitor.SetActive(false);
         }
 
         void Setup(Transform target, Vector2 lowerLeft)
@@ -108,12 +125,9 @@ namespace BlockFreeFall
         void LateUpdate()
         {
             if (crawling) { UpdateCrawl(); return; }
-            if (anchor == null) { Clear(); return; }
-            if (!anchor.gameObject.activeInHierarchy)
-            {
-                if (completed) Clear(); else StartCrawl();
-                return;
-            }
+            if (completed) { UpdateShow(); return; }
+            if (anchor == null) { Finish(); return; }
+            if (!anchor.gameObject.activeInHierarchy) { StartCrawl(); return; }
             transform.position = anchor.TransformPoint(localOffset);
             transform.rotation = FollowRotation ? Quaternion.Euler(0f, 0f, anchor.eulerAngles.z + rotOffset) : Quaternion.identity;
         }
@@ -121,14 +135,14 @@ namespace BlockFreeFall
         void Update()
         {
             frameT += Time.deltaTime;
-            if (frameT >= 1f / 15f) { frameT = 0f; DrawFrame(); }   // 映像の更新は1秒に15回
+            if (frameT >= 1f / 15f && video.enabled) { frameT = 0f; DrawFrame(); }   // 映像の更新は1秒に15回
 
             if (crawling) return;
 
             if (completed)
             {
                 showT -= Time.deltaTime;
-                if (showT <= 0f) Clear();
+                if (showT <= 0f) Finish();
                 return;
             }
 
@@ -165,94 +179,150 @@ namespace BlockFreeFall
 
         void Complete()
         {
+            if (crawlingAd != null) crawlingAd.Finish();   // モニターは1つなので、這い上がりの途中でも完成を優先する
             completed = true;
             showT = Cfg.AdCompleteSeconds;
-            video.maskInteraction = SpriteMaskInteraction.None;   // 切り抜きをやめて、全体を見せる
+            Reveal(true);
             Sfx.Revive();
+        }
+
+        // 隠し絵をやめて、全体を見せる。モニターがなければ、ダミーの映像のまま見せる
+        void Reveal(bool front)
+        {
+            foreach (Transform child in transform) child.gameObject.SetActive(false);
+            if (monitor == null)
+            {
+                var prefab = Resources.Load<GameObject>("AdVirtuaMonitor");
+                if (prefab != null) monitor = Instantiate(prefab);
+            }
+            if (monitor != null)
+            {
+                monitorZ = front ? MonitorFrontZ : MonitorBackZ;
+                foreach (var r in monitor.GetComponentsInChildren<Renderer>(true)) r.sortingOrder = front ? MonitorFrontOrder : MonitorBackOrder;
+                monitor.SetActive(true);
+                video.enabled = false;
+            }
+            else video.maskInteraction = SpriteMaskInteraction.None;
+        }
+
+        static float RevealWidthNow(Camera cam) => 2f * cam.orthographicSize * cam.aspect * RevealWidthRatio;
+
+        void SetRevealPose(Vector3 pos, float rot, float width)
+        {
+            var q = Quaternion.Euler(0f, 0f, rot);
+            transform.SetPositionAndRotation(pos, q);
+            if (monitor != null)
+            {
+                monitor.transform.SetPositionAndRotation(new Vector3(pos.x, pos.y, monitorZ), q);
+                monitor.transform.localScale = new Vector3(width, width * 9f / 16f, 1f);
+            }
+            else transform.localScale = Vector3.one * (width / Width);
+        }
+
+        // 完成: 隠し絵と同じ大きさのまま、ブロックに追従する。ブロックが落ちたら、その場で最後まで流す
+        void UpdateShow()
+        {
+            var pos = transform.position;
+            float rot = transform.eulerAngles.z;
+            if (anchor != null && anchor.gameObject.activeInHierarchy)
+            {
+                pos = anchor.TransformPoint(localOffset);
+                if (FollowRotation) rot = anchor.eulerAngles.z + rotOffset;
+            }
+            SetRevealPose(pos, rot, Width);
         }
 
         void StartCrawl()
         {
+            if (crawlingAd != null) crawlingAd.Finish();
+            if (currentAd == this) currentAd = null;
+            crawlingAd = this;
             crawling = true;
-            video.maskInteraction = SpriteMaskInteraction.None;   // ここで初めて、全体が見える
-            bar.gameObject.SetActive(false);
-            var cam = Camera.main;
-            float bottom = cam.transform.position.y - cam.orthographicSize;
-            float maxX = (Cfg.WorldWidth - Width) / 2f;
-            crawlX = Mathf.Clamp(transform.position.x, -maxX, maxX);
-            crawlStartY = bottom - Height / 2f - 0.2f;
-            crawlTopY = bottom + Height / 2f + 1.2f;
-            transform.SetPositionAndRotation(new Vector3(crawlX, crawlStartY, 0f), Quaternion.identity);
+            crawlX = transform.position.x;
+            Reveal(false);
+            UpdateCrawl();
         }
 
-        // よじ登る → 力尽きて震える → 回りながら落ちる
+        // さっと上がる → よじ登る → 力尽きて震える → 回りながら落ちる
         void UpdateCrawl()
         {
             crawlT += Time.deltaTime;
-            float x = crawlX, y, rot;
-            if (crawlT < ClimbSeconds)
+            var cam = Camera.main;
+            float size = cam.orthographicSize, centerY = cam.transform.position.y;
+            float w = RevealWidthNow(cam), h = w * 9f / 16f;
+            float top = centerY + size, bottom = centerY - size;
+            float lowY = bottom + h / 2f + 1f, highY = top - h / 2f - 1.5f;   // ここの間なら、四隅が画面に入る
+            float maxX = cam.orthographicSize * cam.aspect - w / 2f - 0.3f;
+            float x = Mathf.Clamp(crawlX, -maxX, maxX), y, rot;
+
+            if (crawlT < RiseSeconds)
             {
-                float s = crawlT / ClimbSeconds * ClimbSteps;
+                y = Mathf.SmoothStep(bottom - h / 2f - 0.2f, lowY, crawlT / RiseSeconds);
+                rot = 0f;
+            }
+            else if (crawlT < RiseSeconds + ClimbSeconds)
+            {
+                float climbT = crawlT - RiseSeconds;
+                float s = climbT / ClimbSeconds * ClimbSteps;
                 float step = Mathf.Floor(s), f = s - step;
                 float p = (step + f * f * (3f - 2f * f)) / ClimbSteps;   // 少し登っては止まる
-                y = Mathf.Lerp(crawlStartY, crawlTopY, p);
-                rot = Mathf.Sin(crawlT * 9f) * 5f;
+                y = Mathf.Lerp(lowY, highY, p);
+                rot = Mathf.Sin(climbT * 3f) * 3f;
             }
-            else if (crawlT < ClimbSeconds + HangSeconds)
+            else if (crawlT < RiseSeconds + ClimbSeconds + HangSeconds)
             {
-                y = crawlTopY;
+                y = highY;
                 x += Mathf.Sin(crawlT * 60f) * 0.05f;
                 rot = Mathf.Sin(crawlT * 45f) * 2f;
             }
             else
             {
-                fallSpeed += Cfg.Gravity * 0.5f * Time.deltaTime;
-                fallRot += 90f * Time.deltaTime;
-                y = transform.position.y - fallSpeed * Time.deltaTime;
-                rot = fallRot;
-                var cam = Camera.main;
-                if (y < cam.transform.position.y - cam.orthographicSize - Width) { Clear(); return; }
+                float f = (crawlT - RiseSeconds - ClimbSeconds - HangSeconds) / FallSeconds;
+                if (f >= 1f) { Finish(); return; }
+                y = Mathf.Lerp(highY, bottom - w, f * f);
+                rot = f * 180f;
             }
-            transform.SetPositionAndRotation(new Vector3(x, y, 0f), Quaternion.Euler(0f, 0f, rot));
+            SetRevealPose(new Vector3(x, y, 0f), rot, w);
         }
 
-        // 文字の形を、映像の中央に置く
+        // 流す文字の画像を読み込む。右端の余白のあとに、また先頭が続く
         void BuildText()
         {
-            textMask = new bool[TexW * TexH];
-            const int scale = 2, charW = 6 * scale, charH = 7 * scale;
-            int x0 = (TexW - Letters.Length * charW) / 2, y0 = (TexH - charH) / 2;
-            for (int c = 0; c < Letters.Length; c++)
+            var bytes = Resources.Load<TextAsset>("AdDummyText");
+            if (bytes == null) return;
+            var img = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            if (img.LoadImage(bytes.bytes))
             {
-                if (Letters[c] == null) continue;
-                var rows = Letters[c].Split(',');
-                for (int row = 0; row < 7; row++)
-                    for (int col = 0; col < 5; col++)
-                    {
-                        if (rows[row][col] != '1') continue;
-                        for (int sy = 0; sy < scale; sy++)
-                            for (int sx = 0; sx < scale; sx++)
-                            {
-                                int px0 = x0 + c * charW + col * scale + sx;
-                                int py0 = y0 + (6 - row) * scale + sy;
-                                textMask[py0 * TexW + px0] = true;
-                            }
-                    }
+                textW = img.width;
+                textH = img.height;
+                textPx = img.GetPixels32();
             }
+            Destroy(img);
         }
 
-        // 動画の代わり: 色が流れる背景に、白い文字
+        // ダミーの動画: 色が流れる背景に、白い文字を3段。段ごとに向きと位置をずらして、入れ違いに流す
         void DrawFrame()
         {
             float t = Time.time;
+            int scroll = Mathf.FloorToInt(t * ScrollPixelsPerSecond);
+            int rowH = TexH / TextRows;
             for (int y = 0; y < TexH; y++)
             {
+                int row = y / rowH;
+                int ty = y - row * rowH - (rowH - textH) / 2;
+                bool hasText = textPx != null && row < TextRows && ty >= 0 && ty < textH;
+                int shift = hasText ? (row % 2 == 0 ? scroll : -scroll) + row * textW / TextRows : 0;
                 for (int x = 0; x < TexW; x++)
                 {
                     int i = y * TexW + x;
-                    if (textMask[i]) { px[i] = new Color32(255, 255, 255, 255); continue; }
-                    float h = Mathf.Repeat((x + y) / 200f + t * 0.25f, 1f);
-                    px[i] = Color.HSVToRGB(h, 0.75f, 0.9f);
+                    float h = Mathf.Repeat((x + y) / 300f + t * 0.25f, 1f);
+                    Color32 c = Color.HSVToRGB(h, 0.75f, 0.9f);
+                    if (hasText)
+                    {
+                        int tx = ((x + shift) % textW + textW) % textW;
+                        c = Color32.Lerp(c, new Color32(255, 255, 255, 255), textPx[ty * textW + tx].a / 255f);
+                    }
+                    px[i] = c;
                 }
             }
             tex.SetPixels32(px);

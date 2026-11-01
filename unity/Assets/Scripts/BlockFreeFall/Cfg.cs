@@ -39,9 +39,10 @@ namespace BlockFreeFall
         public const float WarnSeconds = 1.83f;     // 注意の帯を出してから物体が出るまで
 
         // ---- 広告 ----
-        public const int AdEvery = 5;               // 隠し絵の広告を出す間隔(何個落とすごとか)
+        public const int AdFirst = 2;               // 最初に隠し絵の広告を出すピース(何個目か)
+        public const int AdEvery = 8;               // 2回目以降の、隠し絵の広告を出す間隔(何個落とすごとか)
         public const float AdCompleteRatio = 0.6f;  // 範囲がこの割合まで埋まると完成
-        public const float AdCompleteSeconds = 5f;  // 完成したあと、全体を流す秒数
+        public const float AdCompleteSeconds = 15f; // 完成したあと、全体を流す秒数
         public const int AdWaitSeconds = 5;         // 広告ウィンドウで「戻る」が押せるようになるまで
         public const int InterstitialEvery = 10;    // ゲーム間の広告を挟む頻度(何回に1回)
     }
