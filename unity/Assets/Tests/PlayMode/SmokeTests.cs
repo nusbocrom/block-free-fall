@@ -25,6 +25,7 @@ namespace BlockFreeFall.Tests
             yield return null;
             yield return null;
             var game = Object.FindFirstObjectByType<Game>();
+            Object.FindFirstObjectByType<Ui>().HideTitle();   // タイトル画面を閉じて遊び始める
             Assert.IsNotNull(game, "Gameが自動で始まっていない");
 
             var drop = typeof(Game).GetMethod("Drop", Any);
@@ -77,6 +78,7 @@ namespace BlockFreeFall.Tests
             yield return null;
             yield return null;
             var game = Object.FindFirstObjectByType<Game>();
+            Object.FindFirstObjectByType<Ui>().HideTitle();   // タイトル画面を閉じて遊び始める
             var t = typeof(Game);
             var drop = t.GetMethod("Drop", Any);
             var held = t.GetField("held", Any);

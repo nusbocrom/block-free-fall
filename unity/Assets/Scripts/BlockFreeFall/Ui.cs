@@ -34,6 +34,7 @@ namespace BlockFreeFall
         const float SliderBottom = 0.137f, SliderTop = 0.871f;   // Webの、画面の高さに対するスライダーの範囲                 // 白いボタンの下の厚み(Webの 0 3px 0)
 
         public Action OnRetry, OnMute, OnRevive, OnShare, OnSearch;
+        public Action OnStart;           // タイトル画面で押されたとき
 
         /// <summary>広告ウィンドウの中の、広告を出す場所。広告SDKが表示先を求めるときに渡す。</summary>
         public RectTransform AdArea { get; private set; }
@@ -44,7 +45,8 @@ namespace BlockFreeFall
         Text reviveText, adBackText, hSliderText;
         Image warnBg;
         CanvasGroup warnGroup;
-        RectTransform sliderArea, thumb, dropRect, overPanel, adWin, howto, hSlider;
+        RectTransform sliderArea, thumb, dropRect, overPanel, adWin, howto, hSlider, title;
+        Text titleBest, titleBlink;
         readonly List<RectTransform> chips = new();
         readonly Image[] lifeDots = new Image[Cfg.Lives];
         Button adBackBtn;
@@ -63,8 +65,9 @@ namespace BlockFreeFall
         CanvasScaler scaler;
         bool lastWide;
 
-        /// <summary>タップをゲームの操作として扱わない画面(結果、広告、操作説明)が出ているか。</summary>
+        /// <summary>タップをゲームの操作として扱わない画面(タイトル、結果、広告、操作説明)が出ているか。</summary>
         public bool OverlayVisible =>
+            TitleVisible ||
             (overPanel != null && overPanel.gameObject.activeSelf) ||
             (adWin != null && adWin.gameObject.activeSelf) ||
             (howto != null && howto.gameObject.activeSelf);
@@ -115,6 +118,7 @@ namespace BlockFreeFall
             BuildOver(root);
             BuildAdWindow(root);
             BuildHowto(root);
+            BuildTitle(root);
 
             // 画面の下に、一言を出す場所(「画像を保存しました」など)。結果画面より手前。時間で消える
             toast = Label(Rect("Toast", root, new Vector2(0.04f, 0.03f), new Vector2(0.96f, 0.1f)), "", 38, TextAnchor.MiddleCenter, Theme.Text);
@@ -301,7 +305,75 @@ namespace BlockFreeFall
             howto.gameObject.SetActive(false);
         }
 
+        // タイトル画面: ゲームの最初の場面を、背景色で薄く覆った上に出す。どこを押しても始まる
+        void BuildTitle(RectTransform root)
+        {
+            title = Rect("Title", root, Vector2.zero, Vector2.one);
+            Img(title, () => { var c = Theme.Bg; c.a = 0.9f; return c; });
+            title.gameObject.AddComponent<Button>().onClick.AddListener(() => OnStart?.Invoke());
+
+            var logo = Rect("Logo", title, new Vector2(0.5f, 0.72f), new Vector2(0.5f, 0.72f));
+            BuildLogo(logo, font);
+            Label(Rect("Tagline", title, new Vector2(0.05f, 0.47f), new Vector2(0.95f, 0.53f)), "お椀にブロックを積み上げろ", 54, TextAnchor.MiddleCenter, () => Theme.Text);
+            titleBest = Label(Rect("Best", title, new Vector2(0.05f, 0.41f), new Vector2(0.95f, 0.46f)), "", 40, TextAnchor.MiddleCenter, () => Theme.Text);
+            titleBlink = Label(Rect("Blink", title, new Vector2(0.05f, 0.25f), new Vector2(0.95f, 0.31f)), "タップしてはじめる", 52, TextAnchor.MiddleCenter, () => Theme.Text);
+            title.gameObject.SetActive(false);
+        }
+
+        /// <summary>
+        /// タイトルのロゴ。「ブロック」「自由落下」を、ピースと同じ色の角丸のタイルに1文字ずつ載せる。
+        /// 「自由落下」は右へ行くほどずり落ちて傾く。parent の中心に置く(大きさは、幅1080の画面に合わせた単位)。
+        /// サムネイルのGIFでも同じものを使う。
+        /// </summary>
+        public static void BuildLogo(RectTransform parent, Font font)
+        {
+            const float Tile = 200f, Step = 230f;
+            var lines = new[]
+            {
+                (text: "ブロック", kinds: "ZOSJ", y: 125f, dy: new[] { 0f, 0f, 0f, 0f }, rot: new[] { -5f, 3f, -3f, 5f }),
+                (text: "自由落下", kinds: "TILZ", y: -125f, dy: new[] { 0f, -12f, -45f, -115f }, rot: new[] { 0f, -4f, 10f, 28f }),
+            };
+            foreach (var line in lines)
+            {
+                for (int i = 0; i < 4; i++)
+                {
+                    var color = PieceFactory.ColorOf(line.kinds[i]);
+                    var tile = Rect("Tile" + line.text[i], parent, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f));
+                    tile.sizeDelta = new Vector2(Tile, Tile);
+                    tile.anchoredPosition = new Vector2((i - 1.5f) * Step, line.y + line.dy[i]);
+                    tile.localRotation = Quaternion.Euler(0f, 0f, -line.rot[i]);
+
+                    // 下の厚み(濃い色)と、色の面
+                    var under = Rect("under", tile, Vector2.zero, Vector2.one);
+                    under.offsetMin = under.offsetMax = new Vector2(0f, -14f);
+                    RoundImg(under, Color.Lerp(color, Color.black, 0.35f), 2.5f);
+                    RoundImg(Rect("face", tile, Vector2.zero, Vector2.one), color, 2.5f);
+
+                    var t = Rect("t", tile, Vector2.zero, Vector2.one).gameObject.AddComponent<Text>();
+                    t.font = font; t.text = line.text[i].ToString(); t.fontSize = 150;
+                    t.alignment = TextAnchor.MiddleCenter;
+                    t.horizontalOverflow = HorizontalWrapMode.Overflow;
+                    t.verticalOverflow = VerticalWrapMode.Overflow;
+                    t.color = Color.white;
+                    t.raycastTarget = false;
+                    var shadow = t.gameObject.AddComponent<Shadow>();
+                    shadow.effectColor = new Color(0f, 0f, 0f, 0.3f);
+                    shadow.effectDistance = new Vector2(0f, -6f);
+                }
+            }
+        }
+
         // ============ 外から呼ぶもの ============
+        public bool TitleVisible => title != null && title.gameObject.activeSelf;
+
+        public void ShowTitle(float best)
+        {
+            titleBest.text = best > 0f ? $"ベスト {best:0.0}m" : "";
+            title.gameObject.SetActive(true);
+        }
+
+        public void HideTitle() => title.gameObject.SetActive(false);
+
         public void SetHud(float score, float peakScore, int count, int peakCount, int livesLeft)
         {
             // 主役(高さ、個数)は大きく、「最高」「最多」は小さく。桁が増えても、枠に収まる(文字の大きさは固定)
@@ -485,6 +557,10 @@ namespace BlockFreeFall
             {
                 msgT -= Time.deltaTime;
                 var c = msg.color; c.a = Mathf.Clamp01(msgT / 0.3f); msg.color = c;
+            }
+            if (TitleVisible)
+            {
+                var bc = titleBlink.color; bc.a = 0.35f + 0.65f * Mathf.PingPong(Time.unscaledTime * 1.6f, 1f); titleBlink.color = bc;
             }
             if (warnT > 0f)
             {

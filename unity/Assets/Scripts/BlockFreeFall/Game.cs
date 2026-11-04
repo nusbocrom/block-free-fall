@@ -117,6 +117,7 @@ namespace BlockFreeFall
             ui.OnMute = () => ui.SetMuteLabel(Sfx.ToggleMute());
             ui.OnRevive = RequestRevive;
             ui.OnShare = Share;
+            ui.OnStart = StartGame;
             ui.OnSearch = () => Application.OpenURL("https://x.com/search?q=" + Uri.EscapeDataString("#ブロック自由落下") + "&src=typed_query&f=top");
             if (Object.FindFirstObjectByType<AudioListener>() == null) cam.gameObject.AddComponent<AudioListener>();
 
@@ -127,8 +128,14 @@ namespace BlockFreeFall
 
             best = PlayerPrefs.GetFloat("bff-best", 0f);
             ResetGame();
+            ui.ShowTitle(best);
+        }
 
-            // 初回(タッチ操作の端末)だけ、操作説明を出す
+        /// <summary>タイトル画面を閉じて、遊び始める。初回(タッチ操作の端末)だけ、続けて操作説明を出す。</summary>
+        void StartGame()
+        {
+            if (!ui.TitleVisible) return;
+            ui.HideTitle();
             if (!ui.HowtoSeen && Touchscreen.current != null) ui.ShowHowto(true);
         }
 
@@ -197,6 +204,9 @@ namespace BlockFreeFall
                 HandleKeys();
                 Logic();
             }
+            // タイトル画面は、スペースかEnterでも始められる(押したフレームでは落とさないよう、操作の処理のあとで閉じる)
+            var kb = Keyboard.current;
+            if (ui.TitleVisible && kb != null && (kb.spaceKey.wasPressedThisFrame || kb.enterKey.wasPressedThisFrame)) StartGame();
             UpdateCamera();
             if (held != null)
             {

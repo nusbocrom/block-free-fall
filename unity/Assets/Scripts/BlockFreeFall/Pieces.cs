@@ -121,6 +121,9 @@ namespace BlockFreeFall
             ['L'] = Theme.Hex("ee9922"),
         };
 
+        /// <summary>通常のピースの色(タイトルのロゴにも使う)。</summary>
+        public static Color ColorOf(char kind) => Colors[kind];
+
         static PhysicsMaterial2D mat;
         public static PhysicsMaterial2D Mat
         {
