@@ -325,7 +325,7 @@ namespace BlockFreeFall
             AttachAdIfDue(p);
         }
 
-        /// <summary>次に落とすのが AdFirst 個目か、そこから AdEvery 個ごとなら、落とす前のピースに広告を付ける。</summary>
+        /// <summary>次に落とすのが AdFirst 個目か、そこから AdEvery 個ごとなら、落とす前のピースを広告ブロックにする。</summary>
         void AttachAdIfDue(Piece p)
         {
             int next = dropCount + 1;
@@ -349,6 +349,7 @@ namespace BlockFreeFall
             pieces.Add(p);
             current = p; held = null;
             dropCount++;
+            p.DropOrder = dropCount;
             settleTimer = 0f; droppedAt = Time.time;
         }
 
@@ -371,7 +372,7 @@ namespace BlockFreeFall
         IEnumerator ShowOverLater()
         {
             yield return new WaitForSeconds(0.7f);
-            while (AdDemo.IsCrawling) yield return null;   // 未完成の広告の演出は、最後まで見せる
+            while (AdDemo.IsCrawling) yield return null;   // 這い上がる広告の演出は、最後まで見せる
             // 崩れた塔は隠して、最高到達時の塔を作り直して、結果画面の背景にする
             foreach (var p in pieces) if (p != null) p.gameObject.SetActive(false);
             if (held != null) held.gameObject.SetActive(false);

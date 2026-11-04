@@ -11,11 +11,15 @@ namespace BlockFreeFall
         public bool IsBoss;
         public char Kind;                 // 通常のピースの種類(I,O,T,S,Z,J,L)
         public int BossIndex = -1;        // 変な物体の種類(0〜3)。通常のピースは-1
+        public int DropOrder;             // 何個目に落としたか(0=まだ落としていない)
         float lastDust;
 
         // 強くぶつかったら、砂ぼこりを舞わせる
         void OnCollisionEnter2D(Collision2D c)
         {
+            var other = c.rigidbody != null ? c.rigidbody.GetComponent<Piece>() : null;
+            if (other != null) AdDemo.OnPiecesHit(this, other);
+
             float v = c.relativeVelocity.magnitude;
             Sfx.Hit(v);
             if (Time.time - lastDust < 0.08f || v < 3.5f) return;
@@ -228,8 +232,6 @@ namespace BlockFreeFall
             var m = new GameObject("m");
             m.transform.SetParent(g.transform, false);
             m.transform.localScale = new Vector3(fillScale.x, fillScale.y, 1f);
-            m.AddComponent<SpriteMask>().sprite = fill;                     // 隠し絵の広告は、この形の部分だけ見える
-
 
             if (!Shapes.Glossy) return;
             var l = new GameObject("l");
