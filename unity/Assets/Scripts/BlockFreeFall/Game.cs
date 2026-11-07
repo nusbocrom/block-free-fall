@@ -54,7 +54,11 @@ namespace BlockFreeFall
             public char kind; public int boss; public Vector2 pos; public float rot;
         }
 
+#if UNITYROOM
+        const string SiteUrl = "https://unityroom.com/games/block-free-fall";   // unityroom 用のビルド(BuildScript.BuildUnityroom)
+#else
         const string SiteUrl = "https://nusbocrom.github.io/block-free-fall/";
+#endif
         static readonly string[] MissMsg = { "あっ", "ツルッ", "さようなら", "ひどくない？", "そこから？", "滑った！", "止まって！", "あれ？", "落ちた…", "あーあ", "惜しい！", "残念！", "うわぁ…", "あちゃー", "やっちゃった" };
         static readonly string[] EndMsg = { "ブロックに裏切られた", "積んだ気になってた？", "重力が本気を出した", "もう少しで…ではなかった", "高さ？ そんなものは幻想", "塔は崩れ、夢も崩れた", "落ちるのはブロックだけじゃない", "塔の上から見える景色は、地面だけ", "塔の頂上で、あなたは孤独になる", "塔の頂上で、あなたは無力になる", "塔の頂上で、あなたは絶望する" };
         const int None = -99;
