@@ -531,7 +531,17 @@ namespace BlockFreeFall
         IEnumerator ShareRoutine()
         {
             sharing = true;
-            string text = $"【ブロック自由落下】 {peakScore:0.0}m・{peakCount}個 積んだ！ 物理がつらい… #ブロック自由落下 #クソゲー作ります";
+            // URL は文の途中(ハッシュタグの前)に入れる。共有先で末尾に付け足されないよう、URL は別に渡さない
+            string text =
+                "【ブロック自由落下】\n" +
+                "　===========\n" +
+                $"　　高さ：{peakScore:0.0}m\n" +
+                $"　　個数：{peakCount}個\n" +
+                "　===========\n" +
+                "⇩Webブラウザで無料で遊べます♪\n" +
+                SiteUrl + "\n" +
+                "#ブロック自由落下\n" +
+                "#クソゲー作ります";
 
             // 結果画面(最高到達時の塔、ゲーム名、記録)を、ボタンを隠して撮る
             ui.HideResultButtons(true);
@@ -562,7 +572,7 @@ namespace BlockFreeFall
             if (png == null) { ShareText(text); return; }
 #if UNITY_WEBGL && !UNITY_EDITOR
             // 端末の共有画面が使えれば、画像つきで渡す。使えなければ、画像を保存して、Xの投稿画面を開く(Web版と同じ)
-            if (BffShare(png, png.Length, "block-free-fall.png", text, SiteUrl) == 0)
+            if (BffShare(png, png.Length, "block-free-fall.png", text, "") == 0)
             {
                 ui.Toast("画像を保存しました。投稿に添付してね");
                 OpenTweet(text);
@@ -581,7 +591,7 @@ namespace BlockFreeFall
         }
 
         void OpenTweet(string text) =>
-            Application.OpenURL("https://twitter.com/intent/tweet?text=" + Uri.EscapeDataString(text) + "&url=" + Uri.EscapeDataString(SiteUrl));
+            Application.OpenURL("https://twitter.com/intent/tweet?text=" + Uri.EscapeDataString(text));
 
         /// <summary>文字だけのシェア。Androidは共有画面、ほかはXの投稿画面。</summary>
         void ShareText(string text)
@@ -593,7 +603,7 @@ namespace BlockFreeFall
                 using var intent = new AndroidJavaObject("android.content.Intent");
                 intent.Call<AndroidJavaObject>("setAction", "android.intent.action.SEND");
                 intent.Call<AndroidJavaObject>("setType", "text/plain");
-                intent.Call<AndroidJavaObject>("putExtra", "android.intent.extra.TEXT", text + "\n" + SiteUrl);
+                intent.Call<AndroidJavaObject>("putExtra", "android.intent.extra.TEXT", text);
                 using var unity = new AndroidJavaClass("com.unity3d.player.UnityPlayer");
                 using var activity = unity.GetStatic<AndroidJavaObject>("currentActivity");
                 using var chooser = intentClass.CallStatic<AndroidJavaObject>("createChooser", intent, "シェア");

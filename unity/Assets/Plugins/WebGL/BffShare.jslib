@@ -11,7 +11,9 @@ mergeInto(LibraryManager.library, {
     try {
       var file = new File([blob], name, { type: 'image/png' });
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        navigator.share({ files: [file], text: text, url: url }).catch(function () {});
+        var data = { files: [file], text: text };
+        if (url) data.url = url;   // 空なら渡さない(空のURLは、今のページのURLとして扱われるため)
+        navigator.share(data).catch(function () {});
         return 1;
       }
     } catch (e) {}
