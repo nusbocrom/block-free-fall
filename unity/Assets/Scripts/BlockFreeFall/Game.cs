@@ -543,28 +543,14 @@ namespace BlockFreeFall
                 "#ブロック自由落下\n" +
                 "#クソゲー作ります";
 
-            // 結果画面(最高到達時の塔、ゲーム名、記録)を、ボタンを隠して撮る
-            ui.HideResultButtons(true);
-            yield return new WaitForEndOfFrame();
+            // 画像は、結果画面の背景と同じ「最高到達時の塔」だけの絵(ゲームオーバー時に、画面の部品なしで撮ったもの)
             byte[] png = null;
-            try
-            {
-                var shot = ScreenCapture.CaptureScreenshotAsTexture();
-                var r = ui.FrameRect();
-                int x = Mathf.Clamp(Mathf.RoundToInt(r.x), 0, shot.width - 1), y = Mathf.Clamp(Mathf.RoundToInt(r.y), 0, shot.height - 1);
-                int w = Mathf.Min(Mathf.RoundToInt(r.width), shot.width - x), h = Mathf.Min(Mathf.RoundToInt(r.height), shot.height - y);
-                var crop = new Texture2D(w, h, TextureFormat.RGB24, false);
-                crop.SetPixels(shot.GetPixels(x, y, w, h));
-                crop.Apply();
-                png = crop.EncodeToPNG();
-                Destroy(shot);
-                Destroy(crop);
-            }
+            try { if (thumb != null) png = thumb.EncodeToPNG(); }
             catch (Exception e) { Debug.LogWarning(e); }
-            ui.HideResultButtons(false);
 
             ShareContent(png, text);
             sharing = false;
+            yield break;
         }
 
         void ShareContent(byte[] png, string text)

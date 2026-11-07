@@ -56,7 +56,6 @@ namespace BlockFreeFall
         Canvas canvas;
         RawImage resultBg;               // 結果画面の背景に薄く出す、最高到達時の塔の画像
         AspectRatioFitter resultBgFit;
-        readonly List<GameObject> hiddenNow = new();
         float msgT, warnT, dropT, toastT;
         int livesNow;
         bool sliderLeft;
@@ -423,34 +422,6 @@ namespace BlockFreeFall
         }
 
         public void HideGameOver() => overPanel.gameObject.SetActive(false);
-
-        /// <summary>画像にするとき、結果画面のボタンを一時的に隠す(戻すときは、隠す前の状態に戻す)。</summary>
-        public void HideResultButtons(bool hide)
-        {
-            if (hide)
-            {
-                hiddenNow.Clear();
-                foreach (Transform c in overPanel)
-                {
-                    string n = c.name;
-                    bool button = n.StartsWith("Revive") || n.StartsWith("Retry") || n.StartsWith("Share") || n.StartsWith("Search");
-                    if (button && c.gameObject.activeSelf) { hiddenNow.Add(c.gameObject); c.gameObject.SetActive(false); }
-                }
-            }
-            else
-            {
-                foreach (var g in hiddenNow) if (g != null) g.SetActive(true);
-                hiddenNow.Clear();
-            }
-        }
-
-        /// <summary>縦長の枠の、画面上のピクセルの範囲。</summary>
-        public Rect FrameRect()
-        {
-            var c = new Vector3[4];
-            frame.GetWorldCorners(c);
-            return new Rect(c[0].x, c[0].y, c[2].x - c[0].x, c[2].y - c[0].y);
-        }
 
         /// <summary>画面の下に、一言を出す。数秒で消える。</summary>
         public void Toast(string text)
