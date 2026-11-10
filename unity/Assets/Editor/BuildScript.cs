@@ -28,16 +28,39 @@ namespace BlockFreeFall.EditorTools
         }
 
         [MenuItem("BlockFreeFall/Build WebGL")]
-        public static void BuildWebGL() => Build("WebGL", WebGLCompressionFormat.Disabled, "");
+        public static void BuildWebGL() => ExitIfBatch(Build("WebGL", WebGLCompressionFormat.Disabled, ""));
 
         /// <summary>
         /// unityroom 用。unityroom の指定どおり Gzip で圧縮し、Decompression Fallback は使わない。
-        /// UNITYROOM の印を付けて、シェアの URL を unityroom のページにする。アップロードするのは中の Build フォルダと StreamingAssets。
+        /// UNITYROOM の印を付けて、シェアの URL を unityroom のページにし、ランキングにスコアを送る。アップロードするのは中の Build フォルダと StreamingAssets。
+        /// unity/unityroom-hmac.txt(Git の管理外)に、ランキングの HMAC 認証用キーが必要。
         /// </summary>
         [MenuItem("BlockFreeFall/Build WebGL (unityroom)")]
-        public static void BuildUnityroom() => Build("unityroom", WebGLCompressionFormat.Gzip, "UNITYROOM");
+        public static void BuildUnityroom()
+        {
+            // ランキング用の HMAC 認証用キーは Git に入れないファイルから読み、ビルドの間だけ Resources に置く
+            string keyFile = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "unityroom-hmac.txt"));
+            string keyAsset = "Assets/Resources/" + Ranking.KeyResource + ".txt";
+            if (!File.Exists(keyFile) || File.ReadAllText(keyFile).Trim() == "")
+            {
+                Debug.LogError("BlockFreeFall: build Failed -> " + keyFile + " に、unityroom の HMAC 認証用キーを書いてください");
+                ExitIfBatch(false);
+                return;
+            }
+            File.WriteAllText(keyAsset, File.ReadAllText(keyFile).Trim());
+            AssetDatabase.ImportAsset(keyAsset);
+            bool ok;
+            try { ok = Build("unityroom", WebGLCompressionFormat.Gzip, "UNITYROOM"); }
+            finally { AssetDatabase.DeleteAsset(keyAsset); }   // キーをプロジェクトに残さない
+            ExitIfBatch(ok);
+        }
 
-        static void Build(string folder, WebGLCompressionFormat compression, string defines)
+        static void ExitIfBatch(bool ok)
+        {
+            if (Application.isBatchMode) EditorApplication.Exit(ok ? 0 : 1);
+        }
+
+        static bool Build(string folder, WebGLCompressionFormat compression, string defines)
         {
             Setup();
             PlayerSettings.WebGL.compressionFormat = compression;
@@ -57,8 +80,7 @@ namespace BlockFreeFall.EditorTools
             PlayerSettings.SetScriptingDefineSymbols(NamedBuildTarget.WebGL, savedDefines);
             Setup();
             Debug.Log("BlockFreeFall: build " + report.summary.result + " -> " + output);
-            if (Application.isBatchMode)
-                EditorApplication.Exit(report.summary.result == BuildResult.Succeeded ? 0 : 1);
+            return report.summary.result == BuildResult.Succeeded;
         }
     }
 }

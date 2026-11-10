@@ -24,6 +24,9 @@ unity/*.unitypackage
 *.pem
 .env
 .env.*
+# unityroom のランキング用 HMAC 認証用キー(ビルドの間だけ Resources にコピーされる)
+unity/unityroom-hmac.txt
+unity/Assets/Resources/UnityroomHmac.txt*
 
 # ---------- OS ----------
 .DS_Store

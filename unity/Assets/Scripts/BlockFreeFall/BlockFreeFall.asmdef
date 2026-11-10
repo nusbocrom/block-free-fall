@@ -3,7 +3,8 @@
     "rootNamespace": "BlockFreeFall",
     "references": [
         "Unity.InputSystem",
-        "UnityEngine.UI"
+        "UnityEngine.UI",
+        "unityroom"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

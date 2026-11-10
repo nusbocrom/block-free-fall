@@ -380,6 +380,7 @@ namespace BlockFreeFall
         {
             state = State.Over;
             if (peakScore > best) { best = peakScore; PlayerPrefs.SetFloat("bff-best", best); PlayerPrefs.Save(); }
+            Ranking.SendHeight(peakScore);   // unityroom のランキングへ(サーバー側では、その人の最高記録だけが残る)
             StartCoroutine(ShowOverLater());
         }
 
